@@ -8,6 +8,14 @@ from config import CHAT_ID, DAILY_GOAL, to_local_day
 from quotes import random_bros, random_motivational
 
 
+PARTIAL_PHRASES: dict[int, str] = {
+    1: "🌱 25% нормы — уже что-то. Завтра соберись.",
+    2: "🌤 50% — ровно половина. Можно дотянуть.",
+    3: "🔥 75% — один кружок до нормы, надо добить.",
+}
+PASSED_PHRASE = "🫵 100% — real push ups bro."
+
+
 def _display_name(row) -> str:
     return row["first_name"] or (f"@{row['username']}" if row["username"] else f"id{row['user_id']}")
 
@@ -22,7 +30,7 @@ def build_summary_text(day: date) -> str:
 
     if passed:
         names = ", ".join(_display_name(r) for r in passed)
-        lines.append(f"\n✅ челлендж прошли: {names}\nтак держать! 💪")
+        lines.append(f"\n✅ челлендж прошли: {names}\n{PASSED_PHRASE}")
     else:
         lines.append("\n😴 сегодня никто не добил до нормы")
 
@@ -39,7 +47,11 @@ def build_summary_text(day: date) -> str:
     if tried_failed:
         lines.append("\nне дотянули:")
         for r in tried_failed:
-            lines.append(f"• {_display_name(r)} — {r['count']}/{DAILY_GOAL}")
+            phrase = PARTIAL_PHRASES.get(r["count"], "")
+            line = f"• {_display_name(r)} — {r['count']}/{DAILY_GOAL}"
+            if phrase:
+                line += f"   {phrase}"
+            lines.append(line)
 
     return "\n".join(lines)
 
