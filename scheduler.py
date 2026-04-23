@@ -46,12 +46,16 @@ def build_summary_text(day: date) -> str:
 
     if tried_failed:
         lines.append("\nне дотянули:")
+        prev_count = None
         for r in tried_failed:
+            if prev_count is not None and r["count"] != prev_count:
+                lines.append("")
             phrase = PARTIAL_PHRASES.get(r["count"], "")
             line = f"• {_display_name(r)} — {r['count']}/{DAILY_GOAL}"
             if phrase:
                 line += f"   {phrase}"
             lines.append(line)
+            prev_count = r["count"]
 
     return "\n".join(lines)
 
