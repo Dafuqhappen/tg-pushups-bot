@@ -7,6 +7,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 import db
 from config import BOT_TOKEN, DAY_CUTOFF_HOUR, TIMEZONE
@@ -35,7 +36,31 @@ async def _motivational_job(context):
 def main() -> None:
     db.init_db()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    # VPS sometimes fails to open fresh outbound TCP to api.telegram.org for
+    # several seconds at a time. Default PTB connect_timeout is 5s, which is
+    # too tight. Bump all timeouts; scheduler.py also retries on TimedOut.
+    request = HTTPXRequest(
+        connect_timeout=20.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
+        pool_timeout=20.0,
+    )
+    # Long-poll request needs a longer read_timeout than the poll timeout
+    # itself (Telegram holds the connection ~10s, httpx must wait longer).
+    get_updates_request = HTTPXRequest(
+        connect_timeout=20.0,
+        read_timeout=35.0,
+        write_timeout=20.0,
+        pool_timeout=20.0,
+    )
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .request(request)
+        .get_updates_request(get_updates_request)
+        .build()
+    )
 
     app.add_handler(MessageHandler(filters.VIDEO_NOTE, on_video_note))
     app.add_handler(CommandHandler("stats", cmd_stats))

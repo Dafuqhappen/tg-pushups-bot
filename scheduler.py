@@ -1,11 +1,44 @@
+import asyncio
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from telegram import Bot
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 
 import db
 from config import CHAT_ID, DAILY_GOAL, to_local_day
 from quotes import random_bros, random_motivational
+
+log = logging.getLogger("pushups-bot")
+
+# The VPS sometimes fails to open fresh outbound TCP connections to
+# api.telegram.org for a few seconds at a time (existing keep-alive ones keep
+# working). Retry scheduled sends with exponential backoff so a single hiccup
+# doesn't cost us a post. Delays: 3, 6, 12, 24, 48 seconds.
+_SEND_RETRIES = 5
+_SEND_BASE_DELAY = 3.0
+
+
+async def _send_with_retry(bot: Bot, **kwargs) -> None:
+    last_err: Exception | None = None
+    for i in range(_SEND_RETRIES):
+        try:
+            await bot.send_message(**kwargs)
+            if i > 0:
+                log.info("send_message succeeded on attempt %d", i + 1)
+            return
+        except (TimedOut, NetworkError) as e:
+            last_err = e
+            if i < _SEND_RETRIES - 1:
+                delay = _SEND_BASE_DELAY * (2 ** i)
+                log.warning(
+                    "send_message attempt %d failed (%s); retrying in %.0fs",
+                    i + 1, e, delay,
+                )
+                await asyncio.sleep(delay)
+    assert last_err is not None
+    raise last_err
 
 
 PARTIAL_PHRASES: dict[int, str] = {
@@ -69,13 +102,13 @@ async def post_daily_summary(bot: Bot) -> None:
         db.update_streak(row["user_id"], day, passed=row["count"] >= DAILY_GOAL)
 
     text = build_summary_text(day)
-    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=ParseMode.HTML)
-    await bot.send_message(chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
+    await _send_with_retry(bot, chat_id=CHAT_ID, text=text, parse_mode=ParseMode.HTML)
+    await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
 
 
 async def post_motivational_quote(bot: Bot) -> None:
-    await bot.send_message(chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
+    await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
 
 
 async def post_bros_quote(bot: Bot) -> None:
-    await bot.send_message(chat_id=CHAT_ID, text=f"💬 {random_bros()}")
+    await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_bros()}")
