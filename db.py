@@ -57,18 +57,41 @@ def connect():
         conn.close()
 
 
-def upsert_user(user_id: int, username: str | None, first_name: str | None) -> None:
+def upsert_user(
+    user_id: int,
+    username: str | None,
+    first_name: str | None,
+    *,
+    update_first_name: bool = True,
+) -> None:
+    """Insert or refresh a user row.
+
+    With `update_first_name=False`, leave first_name untouched for existing
+    users — used by the Telethon backfill, where `first_name` is the caller's
+    contact label, not the user's real profile name.
+    """
     with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO users (user_id, username, first_name, first_seen)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                username = excluded.username,
-                first_name = excluded.first_name
-            """,
-            (user_id, username, first_name, datetime.utcnow().isoformat()),
-        )
+        if update_first_name:
+            conn.execute(
+                """
+                INSERT INTO users (user_id, username, first_name, first_seen)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    first_name = excluded.first_name
+                """,
+                (user_id, username, first_name, datetime.utcnow().isoformat()),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users (user_id, username, first_name, first_seen)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username
+                """,
+                (user_id, username, first_name, datetime.utcnow().isoformat()),
+            )
 
 
 def record_video_note(

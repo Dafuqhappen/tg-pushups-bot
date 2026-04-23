@@ -84,10 +84,14 @@ async def run() -> None:
             if sender is None or getattr(sender, "bot", False):
                 continue
 
+            # first_name from Telethon under a user account is the caller's
+            # contact label, not the user's real profile name — so don't
+            # overwrite it for users that already exist.
             db.upsert_user(
                 sender.id,
                 getattr(sender, "username", None),
                 getattr(sender, "first_name", None),
+                update_first_name=False,
             )
 
             local_date = to_local_day(msg.date)
