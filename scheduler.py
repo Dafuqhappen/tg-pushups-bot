@@ -13,11 +13,14 @@ from quotes import random_bros, random_motivational
 log = logging.getLogger("pushups-bot")
 
 # The VPS sometimes fails to open fresh outbound TCP connections to
-# api.telegram.org for a few seconds at a time (existing keep-alive ones keep
-# working). Retry scheduled sends with exponential backoff so a single hiccup
-# doesn't cost us a post. Delays: 3, 6, 12, 24, 48 seconds.
-_SEND_RETRIES = 5
+# api.telegram.org for tens of seconds at a time (existing keep-alive ones
+# keep working). Retry scheduled sends with exponential backoff capped at 60s
+# so a single bad window doesn't cost us a post. With 10 attempts the total
+# patience is ~9 minutes — long enough to ride out the worst observed slumps,
+# short enough that the message is still relevant.
+_SEND_RETRIES = 10
 _SEND_BASE_DELAY = 3.0
+_SEND_MAX_DELAY = 60.0
 
 
 async def _send_with_retry(bot: Bot, **kwargs) -> None:
@@ -31,7 +34,7 @@ async def _send_with_retry(bot: Bot, **kwargs) -> None:
         except (TimedOut, NetworkError) as e:
             last_err = e
             if i < _SEND_RETRIES - 1:
-                delay = _SEND_BASE_DELAY * (2 ** i)
+                delay = min(_SEND_BASE_DELAY * (2 ** i), _SEND_MAX_DELAY)
                 log.warning(
                     "send_message attempt %d failed (%s); retrying in %.0fs",
                     i + 1, e, delay,
