@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 from telegram.error import NetworkError, TimedOut
 
 import db
-from config import CHAT_ID, DAILY_GOAL, to_local_day
+from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, to_local_day
 from quotes import random_bros, random_motivational
 
 log = logging.getLogger("pushups-bot")
@@ -59,6 +59,9 @@ def _display_name(row) -> str:
 def build_summary_text(day: date) -> str:
     """Render the daily summary for `day` from current DB state. Pure — no writes."""
     counts = db.counts_for_day(day)
+    # Юзеры из EXCLUDED_USER_IDS не появляются в публичной сводке (ни в
+    # прошедших, ни в недотянувших) — по их собственной просьбе.
+    counts = [r for r in counts if r["user_id"] not in EXCLUDED_USER_IDS]
     passed = [r for r in counts if r["count"] >= DAILY_GOAL]
     tried_failed = [r for r in counts if 0 < r["count"] < DAILY_GOAL]
 
@@ -102,6 +105,11 @@ async def post_daily_summary(bot: Bot) -> None:
     day = to_local_day(datetime.now(timezone.utc) - timedelta(minutes=1))
 
     for row in db.counts_for_day(day):
+        # Не считаем стрики исключённым — они в публичной сводке не светятся,
+        # поэтому их «провисший» current_streak никого не интересует и только
+        # будет вводить в заблуждение при ручных проверках.
+        if row["user_id"] in EXCLUDED_USER_IDS:
+            continue
         db.update_streak(row["user_id"], day, passed=row["count"] >= DAILY_GOAL)
 
     text = build_summary_text(day)

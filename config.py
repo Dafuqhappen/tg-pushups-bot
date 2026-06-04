@@ -23,6 +23,27 @@ TG_PHONE = os.getenv("TG_PHONE")
 BACKFILL_SINCE = os.getenv("BACKFILL_SINCE", "2026-04-01")
 
 
+def _parse_user_id_set(raw: str) -> frozenset[int]:
+    """Parse comma-separated user_id list from env. Ignores blanks and bad ints."""
+    out: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.add(int(part))
+        except ValueError:
+            pass
+    return frozenset(out)
+
+
+# Юзеры, которых бот игнорит в публичных подсчётах: не появляются в утренней
+# сводке, в /top, и их стрики не обновляются (так что не «провисают»).
+# Кружки в БД продолжают писаться, личный /stats показывает их данные как есть.
+# Формат: "123,456,789".
+EXCLUDED_USER_IDS: frozenset[int] = _parse_user_id_set(os.getenv("EXCLUDED_USER_IDS", ""))
+
+
 def to_local_day(dt: datetime) -> date:
     """Map any timezone-aware datetime to the logical day under the cutoff rule."""
     if dt.tzinfo is None:

@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import db
-from config import CHAT_ID, DAILY_GOAL, current_local_day, to_local_day
+from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, current_local_day, to_local_day
 
 
 def _display_name(user) -> str:
@@ -55,6 +55,8 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     users = db.all_users()
     rows = []
     for u in users:
+        if u["user_id"] in EXCLUDED_USER_IDS:
+            continue
         streak = db.get_streak(u["user_id"])
         total = db.total_for_user(u["user_id"])
         name = u["first_name"] or (
