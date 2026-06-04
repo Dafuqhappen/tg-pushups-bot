@@ -12,13 +12,14 @@ from quotes import random_bros, random_motivational
 
 log = logging.getLogger("pushups-bot")
 
-# The VPS sometimes fails to open fresh outbound TCP connections to
-# api.telegram.org for tens of seconds at a time (existing keep-alive ones
-# keep working). Retry scheduled sends with exponential backoff capped at 60s
-# so a single bad window doesn't cost us a post. With 10 attempts the total
-# patience is ~9 minutes — long enough to ride out the worst observed slumps,
-# short enough that the message is still relevant.
-_SEND_RETRIES = 10
+# The RU VPS hits long RKN-style block windows on fresh TCP to
+# api.telegram.org (long-poll keep-alive survives, new sends die). Retry
+# with exponential backoff capped at 60s. With 30 attempts the total
+# patience is ~36 minutes — covers most observed windows while keeping the
+# delayed post still sensible to read in chat. Bumping connect_timeout
+# wouldn't help — during a block window SYN is dropped, so waiting longer
+# per attempt just makes each failure slower.
+_SEND_RETRIES = 30
 _SEND_BASE_DELAY = 3.0
 _SEND_MAX_DELAY = 60.0
 
