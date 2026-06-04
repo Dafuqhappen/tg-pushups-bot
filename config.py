@@ -22,6 +22,14 @@ TG_API_HASH = os.getenv("TG_API_HASH")
 TG_PHONE = os.getenv("TG_PHONE")
 BACKFILL_SINCE = os.getenv("BACKFILL_SINCE", "2026-04-01")
 
+# Опциональный прокси для исходящих запросов к api.telegram.org.
+# Нужен когда VPS в РФ и провайдер режет TLS до Telegram. Примеры значений:
+#   http://user:pass@host:port
+#   https://user:pass@host:port
+#   socks5://user:pass@host:port   (требует: pip install "httpx[socks]")
+# Если переменная не задана — прокси не используется.
+TG_PROXY_URL = os.getenv("TG_PROXY_URL") or None
+
 
 def _parse_user_id_set(raw: str) -> frozenset[int]:
     """Parse comma-separated user_id list from env. Ignores blanks and bad ints."""
