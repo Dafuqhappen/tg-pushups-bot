@@ -10,7 +10,7 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 import db
-from config import BOT_TOKEN, DAY_CUTOFF_HOUR, TIMEZONE
+from config import BOT_TOKEN, DAY_CUTOFF_HOUR, TG_PROXY_URL, TIMEZONE
 from handlers import cmd_stats, cmd_top, on_video_note
 from scheduler import post_bros_quote, post_daily_summary, post_motivational_quote
 
@@ -39,20 +39,23 @@ def main() -> None:
     # VPS sometimes fails to open fresh outbound TCP to api.telegram.org for
     # several seconds at a time. Default PTB connect_timeout is 5s, which is
     # too tight. Bump all timeouts; scheduler.py also retries on TimedOut.
-    request = HTTPXRequest(
+    # При выставленном TG_PROXY_URL весь трафик идёт через прокси (нужно для
+    # RU-VPS, где провайдер блокирует TLS до Telegram).
+    common_kwargs: dict = dict(
         connect_timeout=20.0,
         read_timeout=20.0,
         write_timeout=20.0,
         pool_timeout=20.0,
     )
+    if TG_PROXY_URL:
+        common_kwargs["proxy"] = TG_PROXY_URL
+        log.info("using proxy for outbound Telegram traffic")
+
+    request = HTTPXRequest(**common_kwargs)
     # Long-poll request needs a longer read_timeout than the poll timeout
     # itself (Telegram holds the connection ~10s, httpx must wait longer).
-    get_updates_request = HTTPXRequest(
-        connect_timeout=20.0,
-        read_timeout=35.0,
-        write_timeout=20.0,
-        pool_timeout=20.0,
-    )
+    get_updates_kwargs = {**common_kwargs, "read_timeout": 35.0}
+    get_updates_request = HTTPXRequest(**get_updates_kwargs)
 
     app = (
         Application.builder()
