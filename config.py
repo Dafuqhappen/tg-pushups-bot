@@ -51,6 +51,12 @@ def _parse_user_id_set(raw: str) -> frozenset[int]:
 # Формат: "123,456,789".
 EXCLUDED_USER_IDS: frozenset[int] = _parse_user_id_set(os.getenv("EXCLUDED_USER_IDS", ""))
 
+# Дата старта текущего «сезона» — с неё начинается отсчёт стрика под новыми
+# правилами (1 пропуск/месяц прощается, 2-й обнуляет). Кружки в БД до этой
+# даты остаются, но в стрик не влияют. best_streak (all-time рекорд) при
+# пересчёте сохраняется как пол.
+SEASON_START = date.fromisoformat(os.getenv("SEASON_START", "2026-06-01"))
+
 
 def to_local_day(dt: datetime) -> date:
     """Map any timezone-aware datetime to the logical day under the cutoff rule."""

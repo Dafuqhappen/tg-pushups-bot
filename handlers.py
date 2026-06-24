@@ -37,13 +37,21 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     streak = db.get_streak(user.id)
     current = streak["current_streak"] if streak else 0
     best = streak["best_streak"] if streak else 0
+    skip_used_month = streak["skip_used_month"] if streak else None
+    bonus_used = skip_used_month == today.strftime("%Y-%m")
+    bonus_line = (
+        "месячный бонус: использован ❌"
+        if bonus_used
+        else "месячный бонус: доступен ✅"
+    )
 
     await msg.reply_text(
         f"{_display_name(user)}\n"
         f"сегодня: {today_count}/{DAILY_GOAL}\n"
         f"всего кружков: {total}\n"
         f"текущий стрик: {current} 🔥\n"
-        f"рекордный стрик: {best}"
+        f"рекордный стрик: {best}\n"
+        f"{bonus_line}"
     )
 
 
