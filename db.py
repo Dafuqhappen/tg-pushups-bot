@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS streaks (
     user_id           INTEGER PRIMARY KEY,
     current_streak    INTEGER NOT NULL DEFAULT 0,
     best_streak       INTEGER NOT NULL DEFAULT 0,
-    last_passed_date  TEXT
+    last_passed_date  TEXT,
+    skip_used_month   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS used_quotes (
@@ -43,6 +44,12 @@ def init_db() -> None:
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # In-place schema migration: add skip_used_month if старая БД
+        # без этого столбца. ALTER TABLE на SQLite — мгновенный для NULL-ового
+        # дополнения, без блокировок.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(streaks)").fetchall()}
+        if "skip_used_month" not in cols:
+            conn.execute("ALTER TABLE streaks ADD COLUMN skip_used_month TEXT")
 
 
 @contextmanager
@@ -150,42 +157,98 @@ def get_streak(user_id: int) -> sqlite3.Row | None:
 
 
 def update_streak(user_id: int, day: date, passed: bool) -> None:
-    """Advance streak if passed and day is consecutive; reset if not."""
+    """Advance streak under the monthly-skip rule.
+
+    - Pass day: current += 1 (или = 1, если стрик был разорван либо это
+      первый день). Если между last_passed и сегодня ровно один пропущенный
+      день, и этот пропуск пришёлся на месяц, для которого был помечен
+      `skip_used_month`, — стрик считается «мостом», current += 1.
+    - Miss day, skip ещё не использовался в этом месяце: помечаем месяц как
+      использованный, current и last_passed не трогаем. Стрик «прощает» один
+      пропуск.
+    - Miss day, skip уже использован в этом месяце: current = 0. Бонус не
+      возобновляется до следующего месяца.
+
+    best_streak — only growing, никогда не уменьшается (all-time рекорд).
+    """
+    from datetime import timedelta
+    month_key = day.strftime("%Y-%m")
+
     with connect() as conn:
         row = conn.execute(
             "SELECT * FROM streaks WHERE user_id = ?", (user_id,)
         ).fetchone()
 
         if row is None:
-            current = 1 if passed else 0
-            best = current
-            last = day.isoformat() if passed else None
-            conn.execute(
-                "INSERT INTO streaks (user_id, current_streak, best_streak, last_passed_date)"
-                " VALUES (?, ?, ?, ?)",
-                (user_id, current, best, last),
-            )
+            if passed:
+                conn.execute(
+                    "INSERT INTO streaks (user_id, current_streak, best_streak,"
+                    " last_passed_date, skip_used_month)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (user_id, 1, 1, day.isoformat(), None),
+                )
+            else:
+                # Первая запись для юзера + miss day. Стрика нет, но месяц
+                # помечаем как «было пусто» — иначе следующий пропуск был бы
+                # «первым в месяце» и сжёг бы второй бонус.
+                conn.execute(
+                    "INSERT INTO streaks (user_id, current_streak, best_streak,"
+                    " last_passed_date, skip_used_month)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (user_id, 0, 0, None, month_key),
+                )
             return
 
         current = row["current_streak"]
         best = row["best_streak"]
-        last = date.fromisoformat(row["last_passed_date"]) if row["last_passed_date"] else None
+        last_passed = (
+            date.fromisoformat(row["last_passed_date"])
+            if row["last_passed_date"] else None
+        )
+        skip_used_month = row["skip_used_month"]  # may be None
 
         if passed:
-            if last is None or (day - last).days > 1:
+            if current == 0 or last_passed is None:
                 current = 1
-            elif (day - last).days == 1:
+            elif (day - last_passed).days == 1:
                 current += 1
-            # (day - last).days == 0 → already counted, keep current
+            elif (day - last_passed).days == 2:
+                # Возможный «мост» через прощённый пропуск
+                gap_day = day - timedelta(days=1)
+                if skip_used_month == gap_day.strftime("%Y-%m"):
+                    current += 1
+                else:
+                    current = 1
+            elif (day - last_passed).days == 0:
+                # Повторный pass за тот же день — ничего не меняем
+                pass
+            else:
+                # Больший gap или нет валидного skip → новая серия
+                current = 1
             best = max(best, current)
-            last = day
+            last_passed = day
         else:
-            current = 0
+            if skip_used_month != month_key:
+                # Первый пропуск в этом месяце — прощаем, стрик жив
+                skip_used_month = month_key
+            else:
+                # Второй пропуск в этом месяце — стрик сгорает.
+                # skip_used_month оставляем как есть — он привязан к месяцу,
+                # а не к стрику, и не должен сбрасываться до новой месячной
+                # границы.
+                current = 0
 
         conn.execute(
-            "UPDATE streaks SET current_streak = ?, best_streak = ?, last_passed_date = ?"
+            "UPDATE streaks SET current_streak = ?, best_streak = ?,"
+            " last_passed_date = ?, skip_used_month = ?"
             " WHERE user_id = ?",
-            (current, best, last.isoformat() if last else None, user_id),
+            (
+                current,
+                best,
+                last_passed.isoformat() if last_passed else None,
+                skip_used_month,
+                user_id,
+            ),
         )
 
 
