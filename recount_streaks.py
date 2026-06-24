@@ -4,9 +4,13 @@ Walks every date from SEASON_START up to *yesterday* (today is still
 in-progress and gets evaluated by the daily scheduler at 09:00 МСК).
 
 Streak rule (in effect since SEASON_START):
-- Pass day (>= DAILY_GOAL kruzhki): current_streak += 1
-- Miss day, first miss of the month: streak survives ("monthly skip")
-- Miss day, second+ miss of the month: current_streak = 0
+- Каждый юзер «вписывается» в сезон со своего первого pass-дня.
+  Дни до этого (нули и попытки <DAILY_GOAL) полностью игнорируются —
+  бонус месячного пропуска не сжигается.
+- После joined:
+  - Pass day: current_streak += 1
+  - Miss day, первый miss месяца: стрик жив ("monthly skip")
+  - Miss day, второй+ miss месяца: current_streak = 0
 
 best_streak is preserved as an all-time floor — the recount can only
 grow it, never shrink it.
@@ -53,6 +57,7 @@ def recount() -> None:
             current = 0
             last_passed: date | None = None
             skip_used_month: str | None = None
+            joined = False
 
             for day in _daterange(start, yesterday):
                 count = conn.execute(
@@ -63,8 +68,14 @@ def recount() -> None:
                 passed = count >= DAILY_GOAL
                 month_key = day.strftime("%Y-%m")
 
+                # До первого pass-дня юзер «не в сезоне» — игнорируем всё,
+                # бонус не жжём.
+                if not joined and not passed:
+                    continue
+
                 if passed:
-                    if current == 0 or last_passed is None:
+                    if not joined:
+                        joined = True
                         current = 1
                     elif (day - last_passed).days == 1:
                         current += 1
