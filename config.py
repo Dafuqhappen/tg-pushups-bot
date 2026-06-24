@@ -12,10 +12,18 @@ TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Moscow"))
 DAILY_GOAL = int(os.getenv("DAILY_GOAL", "4"))
 DB_PATH = os.getenv("DB_PATH", "data/pushups.db")
 
-# "Day" runs from DAY_CUTOFF_HOUR:00 local to DAY_CUTOFF_HOUR:00 the next calendar date.
-# Kruzhki sent before the cutoff are counted toward the *previous* day, and the
-# daily summary job fires at DAY_CUTOFF_HOUR:00.
-DAY_CUTOFF_HOUR = int(os.getenv("DAY_CUTOFF_HOUR", "9"))
+# Граница «логического дня». Любой кружок, посланный после DAY_CUTOFF_HOUR
+# (по локальному TZ), относится к сегодня; до cutoff — к предыдущему дню.
+# Cutoff = 3 МСК даёт удобный баланс: ранние тренировки утром (06–09)
+# попадают в «сегодня», а поздние ночные (00–03) ещё засчитываются за
+# «вчера». В прошлом было 9, но это ломало стрики тем, кто тренируется
+# до завтрака.
+DAY_CUTOFF_HOUR = int(os.getenv("DAY_CUTOFF_HOUR", "3"))
+
+# Час, в который бот публикует ежедневную сводку за предыдущий логический
+# день. Отделён от DAY_CUTOFF_HOUR, чтобы пост приходил в удобное время
+# (09:00 МСК), а граница дня могла быть раньше.
+SUMMARY_HOUR = int(os.getenv("SUMMARY_HOUR", "9"))
 
 TG_API_ID = os.getenv("TG_API_ID")
 TG_API_HASH = os.getenv("TG_API_HASH")

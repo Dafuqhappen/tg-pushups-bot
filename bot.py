@@ -10,7 +10,7 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 import db
-from config import BOT_TOKEN, DAY_CUTOFF_HOUR, TG_PROXY_URL, TIMEZONE
+from config import BOT_TOKEN, SUMMARY_HOUR, TG_PROXY_URL, TIMEZONE
 from handlers import cmd_stats, cmd_top, on_video_note
 from scheduler import post_bros_quote, post_daily_summary, post_motivational_quote
 
@@ -71,7 +71,7 @@ def main() -> None:
 
     app.job_queue.run_daily(
         _daily_job,
-        time=time(hour=DAY_CUTOFF_HOUR, minute=0, tzinfo=TIMEZONE),
+        time=time(hour=SUMMARY_HOUR, minute=0, tzinfo=TIMEZONE),
         name="daily_summary",
     )
 

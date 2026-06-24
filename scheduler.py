@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 from telegram.error import NetworkError, TimedOut
 
 import db
-from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, to_local_day
+from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, current_local_day
 from quotes import random_bros, random_motivational
 
 log = logging.getLogger("pushups-bot")
@@ -101,9 +101,12 @@ def build_summary_text(day: date) -> str:
 
 
 async def post_daily_summary(bot: Bot) -> None:
-    """Summarise the day that just ended (runs at DAY_CUTOFF_HOUR local time)."""
-    # A moment 1 minute before the cutoff still belongs to the day that's wrapping up.
-    day = to_local_day(datetime.now(timezone.utc) - timedelta(minutes=1))
+    """Summarise yesterday's logical day (runs at SUMMARY_HOUR local time)."""
+    # Сводка фиксированно подытоживает «вчерашний логический день».
+    # Раньше day выводился из текущего времени минус минута — это работало,
+    # пока время сводки совпадало с cutoff. После отвязки SUMMARY_HOUR от
+    # DAY_CUTOFF_HOUR прямой расчёт через current_local_day - 1 надёжнее.
+    day = current_local_day() - timedelta(days=1)
 
     for row in db.counts_for_day(day):
         # Не считаем стрики исключённым — они в публичной сводке не светятся,
