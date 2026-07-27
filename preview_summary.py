@@ -5,12 +5,22 @@ Usage:
     python preview_summary.py 2026-04-15   # preview a specific day
 """
 
+import random
 import sys
 from datetime import date, timedelta
 
 from config import current_local_day
-from quotes import random_bros, random_motivational
+from quotes import MOTIVATIONAL
 from scheduler import build_summary_text
+
+
+def _sample_quote() -> str:
+    """Pick a quote *without* marking it used.
+
+    random_motivational() persists the pick to the `used_quotes` table, which
+    would burn quotes out of the live rotation just for a dry-run preview.
+    """
+    return random.choice(MOTIVATIONAL)
 
 
 def main() -> None:
@@ -20,19 +30,19 @@ def main() -> None:
         day = current_local_day() - timedelta(days=1)
 
     print("—" * 40)
-    print("09:00 — сводка + мотивационная цитата:")
+    print("09:00 — сводка + цитата:")
     print("—" * 40)
     print(build_summary_text(day))
     print()
-    print(f"💬 {random_motivational()}")
+    print(f"💬 {_sample_quote()}")
     print("—" * 40)
-    print("15:00 — bros-цитата:")
+    print("15:00 — цитата:")
     print("—" * 40)
-    print(f"💬 {random_bros()}")
+    print(f"💬 {_sample_quote()}")
     print("—" * 40)
-    print("21:00 — мотивационная цитата:")
+    print("21:00 — цитата:")
     print("—" * 40)
-    print(f"💬 {random_motivational()}")
+    print(f"💬 {_sample_quote()}")
     print("—" * 40)
 
 

@@ -12,7 +12,7 @@ from telegram.request import HTTPXRequest
 import db
 from config import BOT_TOKEN, SUMMARY_HOUR, TG_PROXY_URL, TIMEZONE
 from handlers import cmd_stats, cmd_top, on_video_note
-from scheduler import post_bros_quote, post_daily_summary, post_motivational_quote
+from scheduler import post_daily_summary, post_motivational_quote
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -23,10 +23,6 @@ log = logging.getLogger("pushups-bot")
 
 async def _daily_job(context):
     await post_daily_summary(context.bot)
-
-
-async def _bros_job(context):
-    await post_bros_quote(context.bot)
 
 
 async def _motivational_job(context):
@@ -76,9 +72,9 @@ def main() -> None:
     )
 
     app.job_queue.run_daily(
-        _bros_job,
+        _motivational_job,
         time=time(hour=15, minute=0, tzinfo=TIMEZONE),
-        name="bros_quote_15",
+        name="motivational_quote_15",
     )
     app.job_queue.run_daily(
         _motivational_job,

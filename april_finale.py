@@ -17,7 +17,7 @@ from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
 
-from config import BOT_TOKEN, CHAT_ID, DAILY_GOAL, TIMEZONE
+from config import BOT_TOKEN, CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, TIMEZONE
 from db import connect
 from scheduler import _send_with_retry
 
@@ -31,9 +31,9 @@ APRIL_START = date(2026, 4, 1)
 APRIL_END = date(2026, 4, 30)
 DAYS_IN_APRIL = (APRIL_END - APRIL_START).days + 1  # 30
 
-# Исключаются и из рейтинга, и из «не записывали», и из «интересного».
-# Сравнение по тому, что выводит display_name (first_name → @username → id<n>).
-EXCLUDED_NAMES = {"Саня Саныч"}
+# Кого не показывать: берём общий список «тихого режима» из .env
+# (EXCLUDED_USER_IDS). Такие юзеры не попадают ни в рейтинг, ни в
+# «интересное», ни в список «не записывали».
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -80,11 +80,10 @@ def fetch():
         streaks = {r["user_id"]: r for r in conn.execute("SELECT * FROM streaks").fetchall()}
 
     # Отсекаем исключённых сразу на входе — дальше они нигде не появятся.
-    excluded_ids = {uid for uid, u in users.items() if display_name(u) in EXCLUDED_NAMES}
-    if excluded_ids:
-        users = {uid: u for uid, u in users.items() if uid not in excluded_ids}
-        notes = [n for n in notes if n["user_id"] not in excluded_ids]
-        streaks = {uid: s for uid, s in streaks.items() if uid not in excluded_ids}
+    if EXCLUDED_USER_IDS:
+        users = {uid: u for uid, u in users.items() if uid not in EXCLUDED_USER_IDS}
+        notes = [n for n in notes if n["user_id"] not in EXCLUDED_USER_IDS]
+        streaks = {uid: s for uid, s in streaks.items() if uid not in EXCLUDED_USER_IDS}
 
     return users, notes, streaks
 
