@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -8,7 +8,7 @@ from telegram.error import NetworkError, TimedOut
 
 import db
 from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, current_local_day
-from quotes import random_bros, random_motivational
+from quotes import random_motivational
 
 log = logging.getLogger("pushups-bot")
 
@@ -123,7 +123,3 @@ async def post_daily_summary(bot: Bot) -> None:
 
 async def post_motivational_quote(bot: Bot) -> None:
     await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
-
-
-async def post_bros_quote(bot: Bot) -> None:
-    await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_bros()}")
