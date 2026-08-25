@@ -166,9 +166,11 @@ def update_streak(user_id: int, day: date, passed: bool) -> None:
         Между двумя pass-днями допускается ровно один gap-day, если
         skip_used_month совпадает с месяцем пропуска — тогда current += 1
         как «мост».
-      - Miss day, skip ещё не использовался в этом месяце: помечаем
-        месяц как использованный, current не трогаем.
-      - Miss day, skip уже использован в этом месяце: current = 0.
+      - Miss day при current == 0: ничего не меняем. Защищать нечего,
+        поэтому месячная амнистия остаётся неизрасходованной.
+      - Miss day при живом стрике, амнистия свободна: помечаем месяц
+        использованным, current не трогаем — пропуск прощён.
+      - Miss day при живом стрике, амнистия уже потрачена: current = 0.
 
     best_streak — only growing, никогда не уменьшается (all-time рекорд).
     """
@@ -219,8 +221,13 @@ def update_streak(user_id: int, day: date, passed: bool) -> None:
             last_passed = day
             best = max(best, current)
         else:
-            if skip_used_month != month_key:
-                # Первый пропуск в этом месяце — прощаем, стрик жив
+            if current == 0:
+                # Стрика нет — защищать нечего, амнистию не тратим. Иначе
+                # простой в начале месяца сжигал бы её ещё до того, как
+                # человек вернётся к тренировкам.
+                pass
+            elif skip_used_month != month_key:
+                # Первый пропуск в этом месяце при живом стрике — прощаем.
                 skip_used_month = month_key
             else:
                 # Второй пропуск в этом месяце — стрик сгорает.

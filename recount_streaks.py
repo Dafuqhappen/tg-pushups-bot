@@ -9,8 +9,11 @@ Streak rule (in effect since SEASON_START):
   бонус месячного пропуска не сжигается.
 - После joined:
   - Pass day: current_streak += 1
-  - Miss day, первый miss месяца: стрик жив ("monthly skip")
-  - Miss day, второй+ miss месяца: current_streak = 0
+  - Miss day при current_streak == 0: ничего не меняется, амнистия
+    не тратится (иначе простой в начале месяца сжигал бы её до того,
+    как человек вернётся к тренировкам).
+  - Miss day при живом стрике, амнистия свободна: стрик выживает.
+  - Miss day при живом стрике, амнистия потрачена: current_streak = 0.
 
 best_streak is preserved as an all-time floor — the recount can only
 grow it, never shrink it.
@@ -91,7 +94,10 @@ def recount() -> None:
                     best = max(best, current)
                     last_passed = day
                 else:
-                    if skip_used_month != month_key:
+                    if current == 0:
+                        # Стрика нет — амнистию не тратим (см. db.update_streak).
+                        pass
+                    elif skip_used_month != month_key:
                         skip_used_month = month_key
                     else:
                         current = 0
