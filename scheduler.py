@@ -7,6 +7,7 @@ from telegram.constants import ParseMode
 from telegram.error import NetworkError, TimedOut
 
 import db
+import streak_rules
 from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, current_local_day
 from quotes import random_motivational
 
@@ -57,8 +58,13 @@ def _display_name(row) -> str:
     return row["first_name"] or (f"@{row['username']}" if row["username"] else f"id{row['user_id']}")
 
 
-def build_summary_text(day: date) -> str:
-    """Render the daily summary for `day` from current DB state. Pure — no writes."""
+def format_medals(state) -> str:
+    """Медали выводятся из рекорда, поэтому остаются даже после отдыха."""
+    return "🏅" + "·".join(str(m) for m in state.medals) if state.medals else ""
+
+
+def build_summary_text(day: date, states: dict[int, "streak_rules.StreakState"]) -> str:
+    """Собрать текст сводки за `day`. Чистая функция — ничего не пишет."""
     counts = db.counts_for_day(day)
     # Юзеры из EXCLUDED_USER_IDS не появляются в публичной сводке (ни в
     # прошедших, ни в недотянувших) — по их собственной просьбе.
@@ -70,19 +76,20 @@ def build_summary_text(day: date) -> str:
 
     if passed:
         names = ", ".join(_display_name(r) for r in passed)
-        lines.append(f"\n✅ челлендж прошли: {names}\n{PASSED_PHRASE}")
-    else:
-        lines.append("\n😴 сегодня никто не добил до нормы")
-
-    if passed:
+        lines.append(f"\n✅ норму взяли: {names}\n{PASSED_PHRASE}")
         lines.append("\nстрики:")
         for r in passed:
-            s = db.get_streak(r["user_id"])
+            st = states.get(r["user_id"])
+            if st is None:
+                continue
+            medals = format_medals(st)
+            medals = f" {medals}" if medals else ""
             lines.append(
-                f"• {_display_name(r)} — {s['current_streak']} 🔥 "
-                f"(рекордный стрик {s['best_streak']}, "
-                f"всего {db.total_for_user(r['user_id'])})"
+                f"• {_display_name(r)} — {st.current} 🔥{medals} "
+                f"(рекорд {st.best}, всего {db.total_for_user(r['user_id'])})"
             )
+    else:
+        lines.append("\n😴 сегодня никто не добил до нормы")
 
     if tried_failed:
         lines.append("\nне дотянули:")
@@ -97,6 +104,48 @@ def build_summary_text(day: date) -> str:
             lines.append(line)
             prev_count = r["count"]
 
+    # Отдельная витрина для тех, кто ходит каждый день, но не добирает до
+    # нормы: без неё их усилия отображаются как ноль, и люди отваливаются.
+    passed_ids = {r["user_id"] for r in passed}
+    walkers = sorted(
+        (
+            (r, states[r["user_id"]])
+            for r in counts
+            if r["user_id"] not in passed_ids
+            and r["user_id"] in states
+            and states[r["user_id"]].activity_current >= 2
+        ),
+        key=lambda pair: -pair[1].activity_current,
+    )[:5]
+    if walkers:
+        lines.append("\n⚡ ходят стабильно (хотя бы один кружок в день):")
+        for r, st in walkers:
+            lines.append(f"• {_display_name(r)} — {st.activity_current} дней подряд")
+
+    rescued = [
+        (r, states[r["user_id"]])
+        for r in counts
+        if r["user_id"] in states
+        and (states[r["user_id"]].freeze_spent_today
+             or states[r["user_id"]].amnesty_spent_today)
+    ]
+    for r, st in rescued:
+        what = "день отдыха" if st.freeze_spent_today else "месячный пропуск"
+        left = st.rest_days(day)
+        lines.append(
+            f"\n🧊 {_display_name(r)} — стрик сохранён, списан {what} "
+            f"(осталось дней отдыха: {left})"
+        )
+
+    for r in counts:
+        st = states.get(r["user_id"])
+        if st is not None and st.milestone_today:
+            lines.append(
+                f"\n🏅 веха взята: {_display_name(r)} — "
+                f"{st.milestone_today} дней подряд!"
+            )
+
+    lines.append("\nправила — /rules · своя статистика — /stats")
     return "\n".join(lines)
 
 
@@ -108,15 +157,11 @@ async def post_daily_summary(bot: Bot) -> None:
     # DAY_CUTOFF_HOUR прямой расчёт через current_local_day - 1 надёжнее.
     day = current_local_day() - timedelta(days=1)
 
-    for row in db.counts_for_day(day):
-        # Не считаем стрики исключённым — они в публичной сводке не светятся,
-        # поэтому их «провисший» current_streak никого не интересует и только
-        # будет вводить в заблуждение при ручных проверках.
-        if row["user_id"] in EXCLUDED_USER_IDS:
-            continue
-        db.update_streak(row["user_id"], day, passed=row["count"] >= DAILY_GOAL)
+    # Полный реплей из video_notes: состояние самовосстанавливается, даже
+    # если бот пропустил один или несколько дней.
+    states = streak_rules.recompute_all(day)
 
-    text = build_summary_text(day)
+    text = build_summary_text(day, states)
     await _send_with_retry(bot, chat_id=CHAT_ID, text=text, parse_mode=ParseMode.HTML)
     await _send_with_retry(bot, chat_id=CHAT_ID, text=f"💬 {random_motivational()}")
 

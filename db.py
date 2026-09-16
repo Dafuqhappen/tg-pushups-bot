@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
-from config import DB_PATH
+from config import DB_PATH, SEASON_START
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -25,11 +25,15 @@ CREATE INDEX IF NOT EXISTS idx_notes_user_date
     ON video_notes(user_id, local_date);
 
 CREATE TABLE IF NOT EXISTS streaks (
-    user_id           INTEGER PRIMARY KEY,
-    current_streak    INTEGER NOT NULL DEFAULT 0,
-    best_streak       INTEGER NOT NULL DEFAULT 0,
-    last_passed_date  TEXT,
-    skip_used_month   TEXT
+    user_id              INTEGER PRIMARY KEY,
+    current_streak       INTEGER NOT NULL DEFAULT 0,
+    best_streak          INTEGER NOT NULL DEFAULT 0,
+    last_passed_date     TEXT,
+    skip_used_month      TEXT,
+    activity_streak      INTEGER NOT NULL DEFAULT 0,
+    best_activity_streak INTEGER NOT NULL DEFAULT 0,
+    last_active_date     TEXT,
+    freeze_banked        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS used_quotes (
@@ -44,12 +48,18 @@ def init_db() -> None:
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
-        # In-place schema migration: add skip_used_month if старая БД
-        # без этого столбца. ALTER TABLE на SQLite — мгновенный для NULL-ового
-        # дополнения, без блокировок.
+        # In-place миграция схемы для БД, созданных ранними версиями.
+        # ALTER TABLE ... ADD COLUMN на SQLite мгновенный и не блокирует.
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(streaks)").fetchall()}
-        if "skip_used_month" not in cols:
-            conn.execute("ALTER TABLE streaks ADD COLUMN skip_used_month TEXT")
+        for name, decl in (
+            ("skip_used_month", "TEXT"),
+            ("activity_streak", "INTEGER NOT NULL DEFAULT 0"),
+            ("best_activity_streak", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_active_date", "TEXT"),
+            ("freeze_banked", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in cols:
+                conn.execute(f"ALTER TABLE streaks ADD COLUMN {name} {decl}")
 
 
 @contextmanager
@@ -156,103 +166,67 @@ def get_streak(user_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def update_streak(user_id: int, day: date, passed: bool) -> None:
-    """Advance streak under the monthly-skip rule.
-
-    Сезон у каждого юзера начинается с его **первого pass-дня**. Дни до
-    него (нули, попытки) полностью игнорируются — бонус не сжигается.
-    После первого pass:
-      - Pass day: current += 1 (или = 1, если стрик был сброшен).
-        Между двумя pass-днями допускается ровно один gap-day, если
-        skip_used_month совпадает с месяцем пропуска — тогда current += 1
-        как «мост».
-      - Miss day при current == 0: ничего не меняем. Защищать нечего,
-        поэтому месячная амнистия остаётся неизрасходованной.
-      - Miss day при живом стрике, амнистия свободна: помечаем месяц
-        использованным, current не трогаем — пропуск прощён.
-      - Miss day при живом стрике, амнистия уже потрачена: current = 0.
-
-    best_streak — only growing, никогда не уменьшается (all-time рекорд).
-    """
-    from datetime import timedelta
-    month_key = day.strftime("%Y-%m")
-
+def counts_by_day(user_id: int) -> dict[date, int]:
+    """Подневные счётчики одного участника за текущий сезон."""
     with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM streaks WHERE user_id = ?", (user_id,)
-        ).fetchone()
+        rows = conn.execute(
+            "SELECT local_date, COUNT(*) AS c FROM video_notes"
+            " WHERE user_id = ? AND local_date >= ?"
+            " GROUP BY local_date",
+            (user_id, SEASON_START.isoformat()),
+        ).fetchall()
+    return {date.fromisoformat(r["local_date"]): r["c"] for r in rows}
 
-        if row is None:
-            current, best, last_passed, skip_used_month = 0, 0, None, None
-        else:
-            current = row["current_streak"]
-            best = row["best_streak"]
-            last_passed = (
-                date.fromisoformat(row["last_passed_date"])
-                if row["last_passed_date"] else None
-            )
-            skip_used_month = row["skip_used_month"]
 
-        joined = last_passed is not None
+def counts_by_day_all() -> dict[int, dict[date, int]]:
+    """То же для всех сразу — один запрос вместо запроса на участника."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT user_id, local_date, COUNT(*) AS c FROM video_notes"
+            " WHERE local_date >= ?"
+            " GROUP BY user_id, local_date",
+            (SEASON_START.isoformat(),),
+        ).fetchall()
+    out: dict[int, dict[date, int]] = {}
+    for r in rows:
+        out.setdefault(r["user_id"], {})[date.fromisoformat(r["local_date"])] = r["c"]
+    return out
 
-        if not joined and not passed:
-            # Юзер ещё не «вписался» в сезон — игнорируем день, бонус не жжём.
-            return
 
-        if passed:
-            if not joined:
-                # Первый pass-день — старт сезона юзера
-                current = 1
-            elif (day - last_passed).days == 0:
-                # Повторный pass за тот же день — ничего не меняем
-                return
-            elif (day - last_passed).days == 1:
-                current += 1
-            elif (day - last_passed).days == 2:
-                # Возможный «мост» через прощённый пропуск
-                gap_day = day - timedelta(days=1)
-                if skip_used_month == gap_day.strftime("%Y-%m"):
-                    current += 1
-                else:
-                    current = 1
-            else:
-                # Больший gap или нет валидного skip → новая серия
-                current = 1
-            last_passed = day
-            best = max(best, current)
-        else:
-            if current == 0:
-                # Стрика нет — защищать нечего, амнистию не тратим. Иначе
-                # простой в начале месяца сжигал бы её ещё до того, как
-                # человек вернётся к тренировкам.
-                pass
-            elif skip_used_month != month_key:
-                # Первый пропуск в этом месяце при живом стрике — прощаем.
-                skip_used_month = month_key
-            else:
-                # Второй пропуск в этом месяце — стрик сгорает.
-                # skip_used_month оставляем как есть — он привязан к месяцу,
-                # а не к стрику, и не должен сбрасываться до новой месячной
-                # границы.
-                current = 0
+def save_state(user_id: int, st) -> None:
+    """Сохранить посчитанное состояние. `st` — streak_rules.StreakState.
 
+    Таблица здесь — кэш для быстрых чтений (/top, сводка). Источник правды —
+    video_notes: состояние всегда можно пересобрать реплеем.
+    """
+    with connect() as conn:
         conn.execute(
             """
             INSERT INTO streaks (user_id, current_streak, best_streak,
-                                 last_passed_date, skip_used_month)
-            VALUES (?, ?, ?, ?, ?)
+                                 last_passed_date, skip_used_month,
+                                 activity_streak, best_activity_streak,
+                                 last_active_date, freeze_banked)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 current_streak = excluded.current_streak,
                 best_streak = excluded.best_streak,
                 last_passed_date = excluded.last_passed_date,
-                skip_used_month = excluded.skip_used_month
+                skip_used_month = excluded.skip_used_month,
+                activity_streak = excluded.activity_streak,
+                best_activity_streak = excluded.best_activity_streak,
+                last_active_date = excluded.last_active_date,
+                freeze_banked = excluded.freeze_banked
             """,
             (
                 user_id,
-                current,
-                best,
-                last_passed.isoformat() if last_passed else None,
-                skip_used_month,
+                st.current,
+                st.best,
+                st.last_passed.isoformat() if st.last_passed else None,
+                st.amnesty_month,
+                st.activity_current,
+                st.activity_best,
+                st.last_active.isoformat() if st.last_active else None,
+                st.freeze_banked,
             ),
         )
 
