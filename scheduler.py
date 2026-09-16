@@ -78,7 +78,13 @@ def build_summary_text(day: date, states: dict[int, "streak_rules.StreakState"])
         names = ", ".join(_display_name(r) for r in passed)
         lines.append(f"\n✅ норму взяли: {names}\n{PASSED_PHRASE}")
         lines.append("\nстрики:")
-        for r in passed:
+        # counts_for_day отдаёт порядок по числу кружков; для витрины стриков
+        # логичнее сортировать по самому стрику.
+        by_streak = sorted(
+            (r for r in passed if r["user_id"] in states),
+            key=lambda r: (-states[r["user_id"]].current, -states[r["user_id"]].best),
+        )
+        for r in by_streak:
             st = states.get(r["user_id"])
             if st is None:
                 continue
