@@ -98,11 +98,9 @@ def replay(
         st.gift_today = None
 
         # --- основной стрик (норма выполнена) ---
-        if not joined and not passed:
-            # Сезон участника ещё не начался: до первого выполненного дня
-            # простои не считаются пропусками и ничего не жгут.
-            pass
-        elif passed:
+        is_gift = STREAK_GIFT_DATE is not None and day == STREAK_GIFT_DATE
+
+        if passed:
             joined = True
             st.current += 1
             if st.current % FREEZE_EVERY == 0:
@@ -111,6 +109,14 @@ def replay(
                 st.milestone_today = st.current
             st.best = max(st.best, st.current)
             st.last_passed = day
+        elif is_gift:
+            # День подарка бесплатный: пропуск в этот день не списывает
+            # ни месячную амнистию, ни накопленную заморозку.
+            pass
+        elif not joined:
+            # Сезон участника ещё не начался: до первого выполненного дня
+            # простои не считаются пропусками и ничего не жгут.
+            pass
         elif st.current == 0:
             # Стрика нет — защищать нечего, ресурсы не тратим.
             pass
@@ -125,17 +131,16 @@ def replay(
             st.streak_broken_today = True
 
         # --- разовый подарок сезона ---
-        # Применяется поверх обычной обработки дня, как пол: что бы в этот
-        # день ни случилось, участник уходит с ним со своим рекордом.
-        # Веха здесь намеренно не объявляется — цифра получена, а не набрана.
-        if STREAK_GIFT_DATE is not None and day == STREAK_GIFT_DATE:
+        # Пол до личного рекорда поверх обычной обработки. Веха здесь
+        # намеренно не объявляется: цифра получена, а не набрана.
+        if is_gift:
             if st.best > st.current:
                 st.current = st.best
                 st.gift_today = st.best
-            joined = True
-            st.last_passed = day
-            st.amnesty_month = None
-            st.streak_broken_today = False
+            if st.current > 0:
+                joined = True
+                st.last_passed = day
+                st.amnesty_month = None
 
         # --- стрик активности (хотя бы один кружок) ---
         if active:
