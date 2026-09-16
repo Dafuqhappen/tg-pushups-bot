@@ -111,11 +111,9 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await msg.reply_text("\n".join(lines) if len(lines) > 1 else "пока пусто")
 
 
-async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = update.effective_message
-    if msg is None or msg.chat_id != CHAT_ID:
-        return
-
+def build_rules_text() -> str:
+    """Текст правил. Вынесен из хендлера, чтобы его можно было отрендерить
+    и вычитать, не дёргая Telegram."""
     cutoff = f"{DAY_CUTOFF_HOUR:02d}:00"
     milestones = " · ".join(str(m) for m in MILESTONES)
 
@@ -152,4 +150,11 @@ async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "",
         "команды: /stats — своя статистика, /top — таблица, /rules — это сообщение",
     ]
-    await msg.reply_text("\n".join(lines))
+    return "\n".join(lines)
+
+
+async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.effective_message
+    if msg is None or msg.chat_id != CHAT_ID:
+        return
+    await msg.reply_text(build_rules_text())
