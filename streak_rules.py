@@ -18,6 +18,7 @@ from config import (
     FREEZE_EVERY,
     MILESTONES,
     SEASON_START,
+    STREAK_GIFT_DATE,
 )
 
 
@@ -45,6 +46,7 @@ class StreakState:
     freeze_spent_today: bool = False
     amnesty_spent_today: bool = False
     streak_broken_today: bool = False
+    gift_today: int | None = None
 
     @property
     def medals(self) -> list[int]:
@@ -93,6 +95,7 @@ def replay(
         st.freeze_spent_today = False
         st.amnesty_spent_today = False
         st.streak_broken_today = False
+        st.gift_today = None
 
         # --- основной стрик (норма выполнена) ---
         if not joined and not passed:
@@ -120,6 +123,19 @@ def replay(
         else:
             st.current = 0
             st.streak_broken_today = True
+
+        # --- разовый подарок сезона ---
+        # Применяется поверх обычной обработки дня, как пол: что бы в этот
+        # день ни случилось, участник уходит с ним со своим рекордом.
+        # Веха здесь намеренно не объявляется — цифра получена, а не набрана.
+        if STREAK_GIFT_DATE is not None and day == STREAK_GIFT_DATE:
+            if st.best > st.current:
+                st.current = st.best
+                st.gift_today = st.best
+            joined = True
+            st.last_passed = day
+            st.amnesty_month = None
+            st.streak_broken_today = False
 
         # --- стрик активности (хотя бы один кружок) ---
         if active:

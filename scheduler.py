@@ -74,6 +74,20 @@ def build_summary_text(day: date, states: dict[int, "streak_rules.StreakState"])
 
     lines = [f"📅 итоги {day.strftime('%d.%m.%Y')}"]
 
+    # Подарок — главная новость дня, поэтому идёт сразу под заголовком.
+    gifted = sorted(
+        ((r, states[r["user_id"]]) for r in counts
+         if r["user_id"] in states and states[r["user_id"]].gift_today),
+        key=lambda pair: -pair[1].gift_today,
+    )
+    if gifted:
+        lines.append(
+            "\n🎁 подарок сезона: стрик возвращён к личному рекорду, "
+            "месячный пропуск обновлён. Дальше — только вперёд."
+        )
+        for r, st in gifted:
+            lines.append(f"• {_display_name(r)} — {st.gift_today} 🔥")
+
     if passed:
         names = ", ".join(_display_name(r) for r in passed)
         lines.append(f"\n✅ норму взяли: {names}\n{PASSED_PHRASE}")
