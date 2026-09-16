@@ -77,6 +77,16 @@ MILESTONES: tuple[int, ...] = tuple(
     int(x) for x in os.getenv("MILESTONES", "30,50,100,200,365").split(",") if x.strip()
 )
 
+# Разовый подарок сезона. В указанный день стрик каждого участника
+# поднимается до его личного рекорда, день засчитывается выполненным, а
+# месячная амнистия обновляется — иначе у тех, кто её уже потратил,
+# подарок сгорел бы на первом же пропуске.
+# Это часть правил, а не правка в БД: состояние пересобирается реплеем,
+# поэтому разовый UPDATE затёрло бы следующим же пересчётом.
+# Пустое значение — подарка нет.
+_gift = os.getenv("STREAK_GIFT_DATE", "").strip()
+STREAK_GIFT_DATE: date | None = date.fromisoformat(_gift) if _gift else None
+
 
 def to_local_day(dt: datetime) -> date:
     """Map any timezone-aware datetime to the logical day under the cutoff rule."""

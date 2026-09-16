@@ -109,6 +109,45 @@ check("дней с нормой", st.passed_days, 3)
 check("активных дней", st.active_days, 4)
 check("кружков за сезон", st.season_kruzhki, 15)
 
+# 14. Разовый подарок сезона
+import config  # noqa: E402
+from datetime import date as _date  # noqa: E402
+
+config.STREAK_GIFT_DATE = START + timedelta(days=5)
+import streak_rules as _sr  # noqa: E402
+_sr.STREAK_GIFT_DATE = config.STREAK_GIFT_DATE
+
+# рекорд 4 в прошлом, потом развал; на шестой день — подарок.
+# Период обрываем на дне подарка: дальше обновлённую амнистию уже может
+# потратить следующий пропуск, и мы проверяли бы не то.
+st = run([4, 4, 4, 4, 0, 0])
+check("подарок поднимает стрик до рекорда", st.current, 4)
+check("подарок обновляет месячную амнистию", st.amnesty_month, None)
+check("подарок отмечен в состоянии", st.gift_today, 4)
+
+# обновлённая амнистия реально работает на следующий день
+st = run([4, 4, 4, 4, 0, 0, 0])
+check("после подарка пропуск гасится амнистией", st.current, 4)
+
+# у кого рекорд уже равен текущему — подарок ничего не меняет
+st = run([4, 4, 4, 4, 4, 4, 4])
+check("подарок не ломает живую серию", st.current, 7)
+
+# после подарка стрик продолжает расти
+st = run([4, 4, 4, 4, 0, 0, 4])
+check("после подарка серия продолжается", st.current, 5)
+
+# нечего дарить тому, кто ни разу не выполнил норму
+st = run([0, 0, 0, 0, 0, 0, 0])
+check("без рекорда дарить нечего", st.current, 0)
+
+# веха от подарка не объявляется — цифра получена, а не набрана
+st = run([4] * 30 + [0] * 5, best_floor=100)
+check("подарок не объявляет веху", st.milestone_today, None)
+
+_sr.STREAK_GIFT_DATE = None
+config.STREAK_GIFT_DATE = None
+
 if failures:
     print("ПРОВАЛЕНО:")
     for f in failures:
