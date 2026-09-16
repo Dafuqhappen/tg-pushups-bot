@@ -11,6 +11,7 @@ from datetime import date, timedelta
 
 from config import current_local_day
 from quotes import MOTIVATIONAL
+import streak_rules
 from scheduler import build_summary_text
 
 
@@ -32,7 +33,9 @@ def main() -> None:
     print("—" * 40)
     print("09:00 — сводка + цитата:")
     print("—" * 40)
-    print(build_summary_text(day))
+    # persist=False: превью ничего не меняет в БД
+    states = streak_rules.recompute_all(day, persist=False)
+    print(build_summary_text(day, states))
     print()
     print(f"💬 {_sample_quote()}")
     print("—" * 40)
