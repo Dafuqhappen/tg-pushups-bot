@@ -20,6 +20,7 @@ from telegram.request import HTTPXRequest
 
 from config import BOT_TOKEN, CHAT_ID, current_local_day
 from quotes import random_motivational
+import streak_rules
 from scheduler import _send_with_retry, build_summary_text
 
 # Force IPv4 — IPv6 route to api.telegram.org from this VPS sometimes hangs.
@@ -35,7 +36,10 @@ async def main() -> None:
     else:
         day = current_local_day() - timedelta(days=1)
 
-    text = build_summary_text(day)
+    # Плановая джоба не отработала, поэтому состояние здесь и
+    # пересчитываем, и сохраняем — как сделала бы она.
+    states = streak_rules.recompute_all(day)
+    text = build_summary_text(day, states)
     print(f"--- summary for {day.isoformat()} ---")
     print(text)
     print("--- end ---")
