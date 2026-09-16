@@ -65,6 +65,18 @@ EXCLUDED_USER_IDS: frozenset[int] = _parse_user_id_set(os.getenv("EXCLUDED_USER_
 # пересчёте сохраняется как пол.
 SEASON_START = date.fromisoformat(os.getenv("SEASON_START", "2026-06-01"))
 
+# Каждые FREEZE_EVERY дней подряд участник зарабатывает один день заморозки.
+# Заморозка тратится на пропуск автоматически — после того, как исчерпана
+# бесплатная месячная амнистия. Смысл: право на отдых достаётся тем, кто
+# набрал длинную серию, и его нельзя получить, не сделав работу.
+FREEZE_EVERY = int(os.getenv("FREEZE_EVERY", "30"))
+
+# Вехи, за которые выдаются постоянные медали. Считаются от best_streak,
+# поэтому остаются с человеком навсегда — отдых их не отнимает.
+MILESTONES: tuple[int, ...] = tuple(
+    int(x) for x in os.getenv("MILESTONES", "30,50,100,200,365").split(",") if x.strip()
+)
+
 
 def to_local_day(dt: datetime) -> date:
     """Map any timezone-aware datetime to the logical day under the cutoff rule."""

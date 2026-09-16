@@ -1,8 +1,22 @@
+from datetime import timedelta
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
 import db
-from config import CHAT_ID, DAILY_GOAL, EXCLUDED_USER_IDS, current_local_day, to_local_day
+import streak_rules
+from config import (
+    CHAT_ID,
+    DAILY_GOAL,
+    DAY_CUTOFF_HOUR,
+    EXCLUDED_USER_IDS,
+    FREEZE_EVERY,
+    MILESTONES,
+    SEASON_START,
+    SUMMARY_HOUR,
+    current_local_day,
+    to_local_day,
+)
 
 
 def _display_name(user) -> str:
@@ -30,29 +44,37 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if msg is None or msg.chat_id != CHAT_ID:
         return
 
-    today = current_local_day()
     user = msg.from_user
+    today = current_local_day()
+    # Стрик считается по закрытым дням, сегодняшний ещё идёт — поэтому
+    # состояние берём на вчера, а текущий день показываем отдельно.
+    st = streak_rules.state_for(user.id, today - timedelta(days=1))
     today_count = db.count_for_day(user.id, today)
-    total = db.total_for_user(user.id)
-    streak = db.get_streak(user.id)
-    current = streak["current_streak"] if streak else 0
-    best = streak["best_streak"] if streak else 0
-    skip_used_month = streak["skip_used_month"] if streak else None
-    bonus_used = skip_used_month == today.strftime("%Y-%m")
-    bonus_line = (
-        "месячный бонус: использован ❌"
-        if bonus_used
-        else "месячный бонус: доступен ✅"
-    )
 
-    await msg.reply_text(
-        f"{_display_name(user)}\n"
-        f"сегодня: {today_count}/{DAILY_GOAL}\n"
-        f"всего кружков: {total}\n"
-        f"текущий стрик: {current} 🔥\n"
-        f"рекордный стрик: {best}\n"
-        f"{bonus_line}"
-    )
+    medals = " · ".join(str(m) for m in st.medals) if st.medals else "пока нет"
+    amnesty = "свободен ✅" if st.amnesty_free(today) else "использован ❌"
+
+    lines = [
+        f"{_display_name(user)}",
+        f"сегодня: {today_count}/{DAILY_GOAL}",
+        "",
+        f"🔥 стрик: {st.current} (рекорд {st.best})",
+        f"🏅 медали: {medals}",
+        f"⚡ активность: {st.activity_current} дней подряд "
+        f"(рекорд {st.activity_best})",
+        "",
+        f"сезон с {SEASON_START.strftime('%d.%m.%Y')}:",
+        f"• дней с нормой: {st.passed_days}",
+        f"• активных дней: {st.active_days}",
+        f"• кружков за сезон: {st.season_kruzhki}",
+        f"• кружков за всё время: {db.total_for_user(user.id)}",
+        "",
+        f"🧊 отдых: {st.rest_days(today)} дн. доступно",
+        f"• накоплено заморозок: {st.freeze_banked} "
+        f"(+1 за каждые {FREEZE_EVERY} дней подряд)",
+        f"• месячный пропуск: {amnesty}",
+    ]
+    await msg.reply_text("\n".join(lines))
 
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -60,27 +82,74 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if msg is None or msg.chat_id != CHAT_ID:
         return
 
-    users = db.all_users()
+    today = current_local_day()
+    states = streak_rules.recompute_all(today - timedelta(days=1), persist=False)
+
     rows = []
-    for u in users:
-        if u["user_id"] in EXCLUDED_USER_IDS:
+    for u in db.all_users():
+        uid = u["user_id"]
+        if uid in EXCLUDED_USER_IDS:
             continue
-        streak = db.get_streak(u["user_id"])
-        total = db.total_for_user(u["user_id"])
+        st = states.get(uid)
+        if st is None:
+            continue
         name = u["first_name"] or (
-            f"@{u['username']}" if u["username"] else f"id{u['user_id']}"
+            f"@{u['username']}" if u["username"] else f"id{uid}"
         )
-        rows.append(
-            (
-                name,
-                streak["current_streak"] if streak else 0,
-                streak["best_streak"] if streak else 0,
-                total,
-            )
-        )
-    rows.sort(key=lambda r: (-r[1], -r[3]))
+        rows.append((name, st, db.total_for_user(uid)))
+
+    rows.sort(key=lambda r: (-r[1].current, -r[1].best, -r[2]))
 
     lines = ["🏆 таблица:"]
-    for name, cur, best, total in rows:
-        lines.append(f"• {name} — стрик {cur} (рекордный стрик {best}), всего {total}")
+    for name, st, total in rows:
+        medals = "🏅" + "·".join(str(m) for m in st.medals) if st.medals else ""
+        medals = f" {medals}" if medals else ""
+        lines.append(
+            f"• {name} — {st.current} 🔥{medals} "
+            f"(рекорд {st.best}, всего {total})"
+        )
     await msg.reply_text("\n".join(lines) if len(lines) > 1 else "пока пусто")
+
+
+async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.effective_message
+    if msg is None or msg.chat_id != CHAT_ID:
+        return
+
+    cutoff = f"{DAY_CUTOFF_HOUR:02d}:00"
+    milestones = " · ".join(str(m) for m in MILESTONES)
+
+    # Текст собирается из тех же констант, по которым живёт бот, — так
+    # правила в чате физически не могут разойтись с поведением.
+    lines = [
+        "📖 правила",
+        "",
+        f"🎯 норма — {DAILY_GOAL} кружка в день.",
+        "",
+        f"🕕 день считается с {cutoff} до {cutoff} следующих суток.",
+        f"   Кружок в 03:00 ночи попадёт во вчера, в 07:00 утра — в сегодня.",
+        f"   Сводка за прошедший день выходит в {SUMMARY_HOUR:02d}:00,",
+        "   цитаты — в 15:00 и 21:00.",
+        "",
+        "🔥 стрик — дни подряд, когда норма выполнена.",
+        "   При пропуске списывается, по порядку:",
+        "   1. бесплатный месячный пропуск (один на календарный месяц)",
+        "   2. накопленный день заморозки",
+        "   3. если ничего не осталось — стрик обнуляется",
+        "   Пока стрика нет, пропуски ничего не тратят.",
+        "",
+        f"🧊 заморозка — +1 день отдыха за каждые {FREEZE_EVERY} дней подряд.",
+        "   Копится и не сгорает. Тратится автоматически, когда месячный",
+        "   пропуск за этот месяц уже израсходован.",
+        "",
+        f"🏅 медали — за вехи {milestones} дней подряд.",
+        "   Считаются от рекорда, поэтому остаются навсегда:",
+        "   отдых и обнуление стрика их не отнимают.",
+        "",
+        "⚡ активность — отдельный счётчик дней подряд хотя бы с одним",
+        "   кружком. Живёт своей жизнью и показывает, что ты продолжаешь",
+        "   ходить, даже когда до нормы не добрал.",
+        "",
+        "команды: /stats — своя статистика, /top — таблица, /rules — это сообщение",
+    ]
+    await msg.reply_text("\n".join(lines))
