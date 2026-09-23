@@ -155,6 +155,20 @@ st = run([4] * 30 + [0], start=_date(2026, 5, 7))
 check("подарок не съедает заморозку", st.freeze_banked, 1)
 check("в день подарка стрик не рвётся", st.current, 30)
 
+# Идемпотентность: повторный прогон на тех же данных не должен ничего
+# менять. Именно этого свойства не хватало, когда подарок читал best и
+# сам же его наращивал — стрик рос на каждом пересчёте без новых кружков.
+seq = [4, 4, 4, 0, 0, 0] + [4] * 6
+c = counts(seq)
+upto = START + timedelta(days=len(seq) - 1)
+s1 = replay(c, upto, start=START, best_floor=0)
+s2 = replay(c, upto, start=START, best_floor=s1.best, activity_best_floor=s1.activity_best)
+s3 = replay(c, upto, start=START, best_floor=s2.best, activity_best_floor=s2.activity_best)
+check("пересчёт идемпотентен: стрик 1→2", s2.current, s1.current)
+check("пересчёт идемпотентен: стрик 2→3", s3.current, s2.current)
+check("пересчёт идемпотентен: рекорд 1→2", s2.best, s1.best)
+check("пересчёт идемпотентен: рекорд 2→3", s3.best, s2.best)
+
 _sr.STREAK_GIFT_DATE = None
 config.STREAK_GIFT_DATE = None
 
