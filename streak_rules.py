@@ -77,6 +77,11 @@ def replay(
     """
     st = StreakState(best=best_floor, activity_best=activity_best_floor)
     joined = False
+    # Рекорд, посчитанный только по истории кружков, без учёта пришедшего
+    # извне best_floor. Нужен подарку: если бы он опирался на st.best, его
+    # собственный результат сохранялся бы в best и на следующем пересчёте
+    # поднимал бы планку ещё выше — стрик рос бы сам по себе.
+    season_best = 0
 
     day = start
     while day <= upto:
@@ -108,6 +113,7 @@ def replay(
             if st.current in MILESTONES and st.current > st.best:
                 st.milestone_today = st.current
             st.best = max(st.best, st.current)
+            season_best = max(season_best, st.current)
             st.last_passed = day
         elif is_gift:
             # День подарка бесплатный: пропуск в этот день не списывает
@@ -134,9 +140,9 @@ def replay(
         # Пол до личного рекорда поверх обычной обработки. Веха здесь
         # намеренно не объявляется: цифра получена, а не набрана.
         if is_gift:
-            if st.best > st.current:
-                st.current = st.best
-                st.gift_today = st.best
+            if season_best > st.current:
+                st.current = season_best
+                st.gift_today = season_best
             if st.current > 0:
                 joined = True
                 st.last_passed = day
