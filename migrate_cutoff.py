@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 import db
-from config import DAY_CUTOFF_HOUR, DB_PATH, to_local_day
+from config import DAY_CUTOFF_HOUR, DB_PATH, to_local_day, user_timezone
 import recount_streaks
 
 
@@ -46,7 +46,7 @@ def main() -> None:
         total = len(rows)
         for r in rows:
             sent_at = datetime.fromisoformat(r["sent_at"])
-            new_ld = to_local_day(sent_at).isoformat()
+            new_ld = to_local_day(sent_at, user_timezone(r["user_id"])).isoformat()
             if new_ld != r["local_date"]:
                 conn.execute(
                     "UPDATE video_notes SET local_date = ?"
