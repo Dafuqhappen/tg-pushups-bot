@@ -16,6 +16,7 @@ from config import (
     SUMMARY_HOUR,
     current_local_day,
     to_local_day,
+    user_timezone,
 )
 
 
@@ -35,7 +36,9 @@ async def on_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     db.upsert_user(user.id, user.username, user.first_name)
 
     sent_at = msg.date
-    local_date = to_local_day(sent_at)
+    # День считается в поясе автора кружка: для одного и того же момента
+    # у москвича это ещё вчера, а у участника восточнее — уже сегодня.
+    local_date = to_local_day(sent_at, user_timezone(user.id))
     db.record_video_note(msg.message_id, user.id, sent_at, local_date)
 
 
@@ -45,7 +48,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user = msg.from_user
-    today = current_local_day()
+    today = current_local_day(user_timezone(user.id))
     # Стрик считается по закрытым дням, сегодняшний ещё идёт — поэтому
     # состояние берём на вчера, а текущий день показываем отдельно.
     st = streak_rules.state_for(user.id, today - timedelta(days=1))

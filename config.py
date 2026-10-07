@@ -1,10 +1,13 @@
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+log = logging.getLogger("pushups-bot")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = int(os.environ["CHAT_ID"])
@@ -12,13 +15,15 @@ TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Moscow"))
 DAILY_GOAL = int(os.getenv("DAILY_GOAL", "4"))
 DB_PATH = os.getenv("DB_PATH", "data/pushups.db")
 
-# Граница «логического дня». Любой кружок, посланный после DAY_CUTOFF_HOUR
-# (по локальному TZ), относится к сегодня; до cutoff — к предыдущему дню.
-# Cutoff = 6 МСК покрывает оба реальных сценария чата:
-#   - добивка нормы ночью (00–06) засчитывается за «вчера»;
-#   - утренняя тренировка до работы (06–09) засчитывается за «сегодня».
-# История значения: было 9 (ломало утренних), потом 3 (ломало ночных).
-DAY_CUTOFF_HOUR = int(os.getenv("DAY_CUTOFF_HOUR", "6"))
+# Граница «логического дня» в ЛИЧНОМ поясе участника. Кружок, посланный
+# после DAY_CUTOFF_HOUR, относится к сегодня; до — к предыдущему дню.
+#
+# Cutoff = 5 покрывает оба реальных сценария чата:
+#   - добивка нормы ночью (00–05) засчитывается за «вчера»;
+#   - ранняя тренировка (05–09) засчитывается за «сегодня».
+# История значения: 9 (ломало утренних) → 3 (ломало ночных) → 6 → 5.
+# Переход 6→5 безопасен: в окне 05:00–08:00 не слал никто.
+DAY_CUTOFF_HOUR = int(os.getenv("DAY_CUTOFF_HOUR", "5"))
 
 # Час, в который бот публикует ежедневную сводку за предыдущий логический
 # день. Отделён от DAY_CUTOFF_HOUR, чтобы пост приходил в удобное время
@@ -88,12 +93,64 @@ _gift = os.getenv("STREAK_GIFT_DATE", "").strip()
 STREAK_GIFT_DATE: date | None = date.fromisoformat(_gift) if _gift else None
 
 
-def to_local_day(dt: datetime) -> date:
-    """Map any timezone-aware datetime to the logical day under the cutoff rule."""
+# Карта «user_id → часовой пояс» из env. Нужна, потому что участники живут
+# в разных поясах: один и тот же момент времени для москвича — глубокая ночь
+# вчерашнего дня, а для участника из Алматы — раннее утро сегодняшнего.
+# Без этого любой глобальный cutoff неизбежно обманывает одну из сторон.
+# Формат: "273430899=Asia/Almaty,649321982=Europe/Berlin"
+def _parse_user_timezones(raw: str) -> dict[int, ZoneInfo]:
+    """Разобрать карту персональных поясов из строки env.
+
+    Битые записи пропускаются с предупреждением, а не роняют процесс:
+    опечатка в поясе одного участника не должна останавливать бота для
+    всех остальных. Цена — такой участник молча считается по общему
+    TIMEZONE, поэтому предупреждение стоит проверять в логе после правки.
+    """
+    out: dict[int, ZoneInfo] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            log.warning("USER_TIMEZONES: пропущена запись без '=': %r", part)
+            continue
+        raw_id, raw_tz = (x.strip() for x in part.split("=", 1))
+        # Разбираем по отдельности: ZoneInfo на кривом ключе тоже умеет
+        # бросать ValueError, и в общем try ошибка списалась бы на user_id.
+        try:
+            uid = int(raw_id)
+        except ValueError:
+            log.warning("USER_TIMEZONES: нечисловой user_id в %r", part)
+            continue
+        try:
+            out[uid] = ZoneInfo(raw_tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            log.warning("USER_TIMEZONES: неизвестный часовой пояс %r", raw_tz)
+    return out
+
+
+USER_TIMEZONES: dict[int, ZoneInfo] = _parse_user_timezones(
+    os.getenv("USER_TIMEZONES", "")
+)
+
+
+def user_timezone(user_id: int | None) -> ZoneInfo:
+    """Пояс участника; у кого не задан — общий TIMEZONE."""
+    if user_id is None:
+        return TIMEZONE
+    return USER_TIMEZONES.get(user_id, TIMEZONE)
+
+
+def to_local_day(dt: datetime, tz: ZoneInfo | None = None) -> date:
+    """Сопоставить момент времени логическому дню по правилу cutoff.
+
+    `tz` — пояс, в котором считается день. По умолчанию общий TIMEZONE;
+    для кружка надо передавать пояс его автора.
+    """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return (dt.astimezone(TIMEZONE) - timedelta(hours=DAY_CUTOFF_HOUR)).date()
+    return (dt.astimezone(tz or TIMEZONE) - timedelta(hours=DAY_CUTOFF_HOUR)).date()
 
 
-def current_local_day() -> date:
-    return to_local_day(datetime.now(timezone.utc))
+def current_local_day(tz: ZoneInfo | None = None) -> date:
+    return to_local_day(datetime.now(timezone.utc), tz)
