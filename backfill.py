@@ -95,7 +95,7 @@ async def run() -> None:
                 update_first_name=False,
             )
 
-            local_date = to_local_day(msg.date, user_timezone(sender.id))
+            local_date = to_local_day(msg.date, user_timezone(sender.id, msg.date))
             if db.record_video_note(msg.id, sender.id, msg.date, local_date):
                 inserted += 1
             else:

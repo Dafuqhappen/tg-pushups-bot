@@ -38,7 +38,7 @@ async def on_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     sent_at = msg.date
     # День считается в поясе автора кружка: для одного и того же момента
     # у москвича это ещё вчера, а у участника восточнее — уже сегодня.
-    local_date = to_local_day(sent_at, user_timezone(user.id))
+    local_date = to_local_day(sent_at, user_timezone(user.id, sent_at))
     db.record_video_note(msg.message_id, user.id, sent_at, local_date)
 
 
