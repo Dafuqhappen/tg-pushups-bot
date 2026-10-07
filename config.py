@@ -98,15 +98,19 @@ STREAK_GIFT_DATE: date | None = date.fromisoformat(_gift) if _gift else None
 # вчерашнего дня, а для участника из Алматы — раннее утро сегодняшнего.
 # Без этого любой глобальный cutoff неизбежно обманывает одну из сторон.
 # Формат: "273430899=Asia/Almaty,649321982=Europe/Berlin"
-def _parse_user_timezones(raw: str) -> dict[int, ZoneInfo]:
+def _parse_user_timezones(raw: str) -> dict[int, tuple[ZoneInfo, date | None]]:
     """Разобрать карту персональных поясов из строки env.
+
+    Формат записи: `id=Зона` либо `id=Зона@ГГГГ-ММ-ДД`. Дата — момент,
+    с которого пояс вступает в силу; раньше неё кружки считаются по общему
+    TIMEZONE. Без даты пояс действует на всю историю.
 
     Битые записи пропускаются с предупреждением, а не роняют процесс:
     опечатка в поясе одного участника не должна останавливать бота для
     всех остальных. Цена — такой участник молча считается по общему
     TIMEZONE, поэтому предупреждение стоит проверять в логе после правки.
     """
-    out: dict[int, ZoneInfo] = {}
+    out: dict[int, tuple[ZoneInfo, date | None]] = {}
     for part in raw.split(","):
         part = part.strip()
         if not part:
@@ -114,7 +118,9 @@ def _parse_user_timezones(raw: str) -> dict[int, ZoneInfo]:
         if "=" not in part:
             log.warning("USER_TIMEZONES: пропущена запись без '=': %r", part)
             continue
-        raw_id, raw_tz = (x.strip() for x in part.split("=", 1))
+        raw_id, raw_rest = (x.strip() for x in part.split("=", 1))
+        raw_tz, _, raw_since = (x.strip() for x in raw_rest.partition("@"))
+
         # Разбираем по отдельности: ZoneInfo на кривом ключе тоже умеет
         # бросать ValueError, и в общем try ошибка списалась бы на user_id.
         try:
@@ -123,9 +129,18 @@ def _parse_user_timezones(raw: str) -> dict[int, ZoneInfo]:
             log.warning("USER_TIMEZONES: нечисловой user_id в %r", part)
             continue
         try:
-            out[uid] = ZoneInfo(raw_tz)
+            tz = ZoneInfo(raw_tz)
         except (ZoneInfoNotFoundError, ValueError):
             log.warning("USER_TIMEZONES: неизвестный часовой пояс %r", raw_tz)
+            continue
+        since: date | None = None
+        if raw_since:
+            try:
+                since = date.fromisoformat(raw_since)
+            except ValueError:
+                log.warning("USER_TIMEZONES: нечитаемая дата %r в %r", raw_since, part)
+                continue
+        out[uid] = (tz, since)
     return out
 
 
@@ -134,11 +149,24 @@ USER_TIMEZONES: dict[int, ZoneInfo] = _parse_user_timezones(
 )
 
 
-def user_timezone(user_id: int | None) -> ZoneInfo:
-    """Пояс участника; у кого не задан — общий TIMEZONE."""
-    if user_id is None:
+def user_timezone(user_id: int | None, when: datetime | date | None = None) -> ZoneInfo:
+    """Пояс участника на момент `when`; у кого не задан — общий TIMEZONE.
+
+    Пояс с датой начала не применяется к более ранним кружкам. Иначе смена
+    пояса переписывала бы прошлое: человек ориентировался на показания бота
+    по старому правилу, останавливался на 4/4 — и ретроактивный пересчёт
+    задним числом отнимал бы у него эти дни.
+    """
+    entry = USER_TIMEZONES.get(user_id) if user_id is not None else None
+    if entry is None:
         return TIMEZONE
-    return USER_TIMEZONES.get(user_id, TIMEZONE)
+    tz, since = entry
+    if since is None or when is None:
+        return tz
+    # Сравниваем по общему поясу: нужна стабильная точка отсчёта, не
+    # зависящая от того, какой пояс мы сейчас выбираем.
+    moment = when.astimezone(TIMEZONE).date() if isinstance(when, datetime) else when
+    return tz if moment >= since else TIMEZONE
 
 
 def to_local_day(dt: datetime, tz: ZoneInfo | None = None) -> date:

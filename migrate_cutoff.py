@@ -46,7 +46,8 @@ def main() -> None:
         total = len(rows)
         for r in rows:
             sent_at = datetime.fromisoformat(r["sent_at"])
-            new_ld = to_local_day(sent_at, user_timezone(r["user_id"])).isoformat()
+            tz = user_timezone(r["user_id"], sent_at)
+            new_ld = to_local_day(sent_at, tz).isoformat()
             if new_ld != r["local_date"]:
                 conn.execute(
                     "UPDATE video_notes SET local_date = ?"
