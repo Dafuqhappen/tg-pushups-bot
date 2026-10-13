@@ -11,7 +11,7 @@ from telegram.request import HTTPXRequest
 
 import db
 from config import BOT_TOKEN, SUMMARY_HOUR, TG_PROXY_URL, TIMEZONE
-from handlers import cmd_rules, cmd_stats, cmd_top, on_video_note
+from handlers import cmd_rules, cmd_stats, cmd_timezone, cmd_top, on_video_note
 from scheduler import post_daily_summary, post_motivational_quote
 
 logging.basicConfig(
@@ -65,6 +65,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("top", cmd_top))
     app.add_handler(CommandHandler("rules", cmd_rules))
+    app.add_handler(CommandHandler("timezone", cmd_timezone))
 
     app.job_queue.run_daily(
         _daily_job,

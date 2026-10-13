@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS streaks (
     freeze_banked        INTEGER NOT NULL DEFAULT 0
 );
 
+-- Персональные часовые пояса, хранимые периодами: строка значит «с даты
+-- since у участника действует пояс tz». Периодами, а не одним значением,
+-- потому что люди переезжают: кружок июля надо считать по старому поясу,
+-- иначе смена пояса переписывает прошлое.
+CREATE TABLE IF NOT EXISTS user_timezones (
+    user_id INTEGER NOT NULL,
+    since   TEXT    NOT NULL,
+    tz      TEXT    NOT NULL,
+    PRIMARY KEY (user_id, since)
+);
+
 CREATE TABLE IF NOT EXISTS used_quotes (
     bucket TEXT NOT NULL,
     quote  TEXT NOT NULL,
@@ -228,6 +239,42 @@ def save_state(user_id: int, st) -> None:
                 st.last_active.isoformat() if st.last_active else None,
                 st.freeze_banked,
             ),
+        )
+
+
+def timezone_rows() -> list[sqlite3.Row]:
+    """Все периоды поясов, от ранних к поздним."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT user_id, since, tz FROM user_timezones ORDER BY user_id, since"
+        ).fetchall()
+
+
+def set_timezone_row(user_id: int, since: date, tz_name: str) -> None:
+    """Записать период. Повторная запись на ту же дату перетирает пояс."""
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_timezones (user_id, since, tz) VALUES (?, ?, ?)
+            ON CONFLICT(user_id, since) DO UPDATE SET tz = excluded.tz
+            """,
+            (user_id, since.isoformat(), tz_name),
+        )
+
+
+def notes_for_user(user_id: int) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT message_id, sent_at, local_date FROM video_notes WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+
+
+def set_note_local_date(message_id: int, user_id: int, local_date: date) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE video_notes SET local_date = ? WHERE message_id = ? AND user_id = ?",
+            (local_date.isoformat(), message_id, user_id),
         )
 
 

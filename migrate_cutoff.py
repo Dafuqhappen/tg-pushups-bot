@@ -22,7 +22,8 @@ from datetime import datetime
 from pathlib import Path
 
 import db
-from config import DAY_CUTOFF_HOUR, DB_PATH, to_local_day, user_timezone
+import timezones
+from config import DAY_CUTOFF_HOUR, DB_PATH, to_local_day
 import recount_streaks
 
 
@@ -46,7 +47,7 @@ def main() -> None:
         total = len(rows)
         for r in rows:
             sent_at = datetime.fromisoformat(r["sent_at"])
-            tz = user_timezone(r["user_id"], sent_at)
+            tz = timezones.timezone_for(r["user_id"], sent_at)
             new_ld = to_local_day(sent_at, tz).isoformat()
             if new_ld != r["local_date"]:
                 conn.execute(

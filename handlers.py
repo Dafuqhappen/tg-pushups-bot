@@ -1,14 +1,16 @@
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 import db
 import streak_rules
+import timezones
 from config import (
     CHAT_ID,
     DAILY_GOAL,
     DAY_CUTOFF_HOUR,
+    TIMEZONE,
     EXCLUDED_USER_IDS,
     FREEZE_EVERY,
     MILESTONES,
@@ -16,7 +18,6 @@ from config import (
     SUMMARY_HOUR,
     current_local_day,
     to_local_day,
-    user_timezone,
 )
 
 
@@ -38,7 +39,7 @@ async def on_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     sent_at = msg.date
     # День считается в поясе автора кружка: для одного и того же момента
     # у москвича это ещё вчера, а у участника восточнее — уже сегодня.
-    local_date = to_local_day(sent_at, user_timezone(user.id, sent_at))
+    local_date = to_local_day(sent_at, timezones.timezone_for(user.id, sent_at))
     db.record_video_note(msg.message_id, user.id, sent_at, local_date)
 
 
@@ -48,7 +49,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user = msg.from_user
-    today = current_local_day(user_timezone(user.id))
+    today = current_local_day(timezones.timezone_for(user.id))
     # Стрик считается по закрытым дням, сегодняшний ещё идёт — поэтому
     # состояние берём на вчера, а текущий день показываем отдельно.
     st = streak_rules.state_for(user.id, today - timedelta(days=1))
@@ -151,7 +152,12 @@ def build_rules_text() -> str:
         "   кружком. Живёт своей жизнью и показывает, что ты продолжаешь",
         "   ходить, даже когда до нормы не добрал.",
         "",
-        "команды: /stats — своя статистика, /top — таблица, /rules — это сообщение",
+        "🌍 сутки считаются в твоём часовом поясе. Если переехал —",
+        "   скажи боту: /timezone Нячанг. Иначе ранняя тренировка может",
+        "   уехать во вчерашний день.",
+        "",
+        "команды: /stats — статистика, /top — таблица,",
+        "/timezone — часовой пояс, /rules — это сообщение",
     ]
     return "\n".join(lines)
 
@@ -161,3 +167,96 @@ async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if msg is None or msg.chat_id != CHAT_ID:
         return
     await msg.reply_text(build_rules_text())
+
+
+def _boundary_in_global_tz(tz) -> str:
+    """Во сколько по общему поясу начинаются сутки участника."""
+    today = date.today()
+    local_start = datetime(today.year, today.month, today.day, DAY_CUTOFF_HOUR, tzinfo=tz)
+    return local_start.astimezone(TIMEZONE).strftime("%H:%M")
+
+
+async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.effective_message
+    if msg is None or msg.chat_id != CHAT_ID:
+        return
+
+    user = msg.from_user
+    args = context.args or []
+
+    # Без аргументов — показать, что сейчас стоит.
+    if not args:
+        periods = timezones.describe(user.id)
+        tz = timezones.timezone_for(user.id)
+        lines = [
+            "🌍 часовой пояс",
+            "",
+            f"сейчас: {tz}",
+            f"сутки начинаются в {DAY_CUTOFF_HOUR:02d}:00 по твоему времени "
+            f"(это {_boundary_in_global_tz(tz)} МСК)",
+        ]
+        if periods:
+            lines.append("")
+            lines.append("история:")
+            for since, name in periods:
+                lines.append(f"• с {since.strftime('%d.%m.%Y')} — {name}")
+        lines += [
+            "",
+            "сменить: /timezone Нячанг",
+            "задним числом: /timezone Нячанг 2026-10-12",
+            "можно и IANA-именем: /timezone Asia/Ho_Chi_Minh",
+        ]
+        await msg.reply_text("\n".join(lines))
+        return
+
+    # Последний аргумент может быть датой начала действия.
+    since = current_local_day(timezones.timezone_for(user.id))
+    place_parts = list(args)
+    try:
+        since = date.fromisoformat(place_parts[-1])
+        place_parts = place_parts[:-1]
+    except ValueError:
+        pass
+
+    if not place_parts:
+        await msg.reply_text("не понял, какой пояс. Пример: /timezone Нячанг")
+        return
+
+    name = timezones.resolve_name(" ".join(place_parts))
+    if name is None:
+        known = ", ".join(sorted(timezones.ALIASES)[:8])
+        await msg.reply_text(
+            f"не знаю такого места: {' '.join(place_parts)}\n\n"
+            f"можно городом ({known}, …) "
+            f"или IANA-именем вида Asia/Ho_Chi_Minh"
+        )
+        return
+
+    timezones.set_for(user.id, name, since)
+
+    # local_date проставляется один раз при записи кружка, поэтому смену
+    # пояса надо применить к уже сохранённым дням, иначе она подействует
+    # только на будущие.
+    moved = 0
+    for r in db.notes_for_user(user.id):
+        sent_at = datetime.fromisoformat(r["sent_at"])
+        tz = timezones.timezone_for(user.id, sent_at)
+        new_ld = to_local_day(sent_at, tz)
+        if new_ld.isoformat() != r["local_date"]:
+            db.set_note_local_date(r["message_id"], user.id, new_ld)
+            moved += 1
+
+    states = streak_rules.recompute_all(current_local_day() - timedelta(days=1))
+    st = states.get(user.id)
+
+    lines = [
+        f"🌍 пояс обновлён: {name}",
+        f"действует с {since.strftime('%d.%m.%Y')}",
+        f"сутки начинаются в {DAY_CUTOFF_HOUR:02d}:00 по твоему времени "
+        f"(это {_boundary_in_global_tz(timezones.timezone_for(user.id))} МСК)",
+    ]
+    if moved:
+        lines.append(f"пересчитано кружков: {moved}")
+    if st is not None:
+        lines.append(f"твой стрик: {st.current} 🔥")
+    await msg.reply_text("\n".join(lines))

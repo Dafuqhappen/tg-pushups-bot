@@ -15,6 +15,7 @@ from telethon import TelegramClient
 from telethon.tl.types import DocumentAttributeVideo, MessageMediaDocument
 
 import db
+import timezones
 from config import (
     BACKFILL_SINCE,
     CHAT_ID,
@@ -24,7 +25,6 @@ from config import (
     TG_PHONE,
     TIMEZONE,
     to_local_day,
-    user_timezone,
 )
 
 
@@ -95,7 +95,7 @@ async def run() -> None:
                 update_first_name=False,
             )
 
-            local_date = to_local_day(msg.date, user_timezone(sender.id, msg.date))
+            local_date = to_local_day(msg.date, timezones.timezone_for(sender.id, msg.date))
             if db.record_video_note(msg.id, sender.id, msg.date, local_date):
                 inserted += 1
             else:
