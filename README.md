@@ -1,5 +1,11 @@
 # TG push-ups bot
 
+[![CI](https://github.com/Dafuqhappen/tg-pushups-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Dafuqhappen/tg-pushups-bot/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-22.x-26A5E4)
+![SQLite](https://img.shields.io/badge/storage-SQLite-003B57)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Telegram-бот для чата с ежедневным фитнес-челленджем. Участники присылают в чат
 видео-кружки (video notes) с подходами — подтягивания, отжимания, приседания,
 планка. Бот считает их, ведёт стрики, каждое утро публикует сводку за прошедший
@@ -229,7 +235,7 @@ Telegram часовой пояс не отдаёт — в объекте `User` 
 в сто дней, то есть единицы миллисекунд.
 
 Правила и персональные пояса покрыты тестами без зависимостей (обычные
-`assert`-ы):
+`assert`-ы), CI гоняет их и `ruff` на каждый push:
 
 ```bash
 .venv/bin/python -m tests.test_streak_rules

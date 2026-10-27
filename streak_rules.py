@@ -9,7 +9,7 @@
 амнистия, затем накопленная заморозка, и только потом обнуление.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 import db

@@ -70,6 +70,7 @@ def init_db() -> None:
             ("freeze_banked", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if name not in cols:
+                # name и decl — константы из кортежа выше, не пользовательский ввод.
                 conn.execute(f"ALTER TABLE streaks ADD COLUMN {name} {decl}")
 
 
