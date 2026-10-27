@@ -1,8 +1,8 @@
 """Покажи дневные счётчики кружков юзера за месяц.
 
 Usage:
-    .venv/bin/python june_counts.py <user_id>                # все дни июня
-    .venv/bin/python june_counts.py <user_id> 2026-05        # любой месяц
+    .venv/bin/python -m scripts.june_counts <user_id>                # все дни июня
+    .venv/bin/python -m scripts.june_counts <user_id> 2026-05        # любой месяц
 """
 
 import sqlite3
@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from config import DB_PATH, DAILY_GOAL
 
 if len(sys.argv) < 2:
-    raise SystemExit("usage: june_counts.py <user_id> [YYYY-MM]")
+    raise SystemExit("usage: python -m scripts.june_counts <user_id> [YYYY-MM]")
 
 user_id = int(sys.argv[1])
 yyyymm = sys.argv[2] if len(sys.argv) > 2 else "2026-06"

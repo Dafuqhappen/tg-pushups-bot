@@ -11,7 +11,7 @@ DAY_CUTOFF_HOUR (значит, после смены cutoff в .env / config.py)
 
 Usage:
     systemctl --user stop pushups-bot
-    .venv/bin/python migrate_cutoff.py
+    .venv/bin/python -m scripts.migrate_cutoff
     systemctl --user start pushups-bot
 
 Идемпотентен — повторный запуск без изменения cutoff = no-op по данным.
@@ -24,7 +24,7 @@ from pathlib import Path
 import db
 import timezones
 from config import DAY_CUTOFF_HOUR, DB_PATH, to_local_day
-import recount_streaks
+from scripts import recount_streaks
 
 
 def main() -> None:

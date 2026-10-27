@@ -5,8 +5,8 @@ already updated as the first step of post_daily_summary, only the
 send_message half failed). Run this to deliver the text post-hoc.
 
 Usage:
-    .venv/bin/python send_missed_summary.py            # вчерашний день
-    .venv/bin/python send_missed_summary.py 2026-04-25 # явно
+    .venv/bin/python -m scripts.send_missed_summary            # вчерашний день
+    .venv/bin/python -m scripts.send_missed_summary 2026-04-25 # явно
 """
 
 import asyncio

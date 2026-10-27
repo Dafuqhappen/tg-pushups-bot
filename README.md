@@ -228,8 +228,13 @@ Telegram часовой пояс не отдаёт — в объекте `User` 
 Стоимость — около 1700 операций в памяти на прогон при 16 участниках и сезоне
 в сто дней, то есть единицы миллисекунд.
 
-Правила покрыты тестами: `python test_streak_rules.py` (без зависимостей,
-обычные `assert`-ы).
+Правила и персональные пояса покрыты тестами без зависимостей (обычные
+`assert`-ы):
+
+```bash
+.venv/bin/python -m tests.test_streak_rules
+.venv/bin/python -m tests.test_timezones
+```
 
 ### Живучесть в недружелюбной сети
 
@@ -246,7 +251,7 @@ long-poll соединение продолжало работать, поэто
 - Увеличенные таймауты `HTTPXRequest`; для long-poll отдельный инстанс с бо́льшим
   `read_timeout`, чем интервал опроса.
 - Опциональный `TG_PROXY_URL`.
-- `send_missed_summary.py` — досылка сводки, если плановая всё-таки не ушла.
+- `scripts/send_missed_summary.py` — досылка сводки, если плановая всё-таки не ушла.
 
 Радикально проблему решил переезд на VPS за пределами РФ; механизмы выше
 оставлены как страховка. Увеличивать `connect_timeout` смысла не было — во время
@@ -256,16 +261,16 @@ long-poll соединение продолжало работать, поэто
 ### Импорт истории
 
 Bot API не отдаёт сообщения, отправленные до того, как бота добавили в чат.
-`backfill.py` дотягивает их через Telethon под user-аккаунтом.
+`scripts/backfill.py` дотягивает их через Telethon под user-аккаунтом.
 
 ```bash
-.venv/bin/python backfill.py        # при первом запуске спросит код из Telegram
-.venv/bin/python recount_streaks.py # пересчитать стрики по добавленным данным
+.venv/bin/python -m scripts.backfill         # при первом запуске спросит код из Telegram
+.venv/bin/python -m scripts.recount_streaks  # пересчитать стрики по добавленным данным
 ```
 
 > **Нюанс.** Telethon под user-аккаунтом возвращает `first_name` с точки зрения
 > вызывающего — то есть **имена из твоей адресной книги**, а не те, что люди
-> поставили себе сами. Поэтому `backfill.py` вызывает
+> поставили себе сами. Поэтому `scripts/backfill.py` вызывает
 > `db.upsert_user(..., update_first_name=False)` и не перезатирает имена уже
 > известных участников.
 
@@ -273,26 +278,29 @@ Bot API не отдаёт сообщения, отправленные до то
 
 ```
 bot.py               точка входа: хендлеры + три ежедневные джобы
-handlers.py          обработка video_note, команды /stats и /top
+handlers.py          обработка video_note, команды /stats, /top, /rules, /timezone
 scheduler.py         сборка сводки + отправка с ретраями
-db.py                SQLite: users, video_notes, streaks, used_quotes
+db.py                SQLite: users, video_notes, streaks, used_quotes, пояса
 config.py            чтение .env, логический день
 streak_rules.py      правила стриков: чистый реплей без обращений к БД
+timezones.py         персональные пояса участников, хранятся периодами
 quotes.py            пул цитат + выбор без повторов
-backfill.py          разовый импорт истории через Telethon
+tests/               тесты правил стрика и поясов
+scripts/             служебные скрипты, запускаются руками из корня репо
 ```
 
-Служебные скрипты (запускаются руками, не частью бота):
+Служебные скрипты (`.venv/bin/python -m scripts.<имя>`, не часть бота):
 
 ```
-test_streak_rules.py   тесты правил стрика (python test_streak_rules.py)
-preview_summary.py     показать, как выглядела бы сводка за день, ничего не отправляя
-recount_streaks.py     пересчитать стрики с нуля по данным в БД
-migrate_cutoff.py      пересчитать local_date после смены DAY_CUTOFF_HOUR
-send_missed_summary.py дослать сводку, если плановая не ушла
-inspect_streak.py      диагностика: юзеры, стрики, кружки за последние дни
-june_counts.py         диагностика: подневная разбивка по участнику за месяц
-april_finale.py        итоги месяца с рейтингом и «интересными фактами»
+backfill             разовый импорт истории через Telethon
+preview_summary      показать, как выглядела бы сводка за день, ничего не отправляя
+recount_streaks      пересчитать стрики с нуля по данным в БД
+migrate_cutoff       пересчитать local_date после смены DAY_CUTOFF_HOUR
+send_missed_summary  дослать сводку, если плановая не ушла
+inspect_streak       диагностика: юзеры, стрики, кружки за последние дни
+june_counts          диагностика: подневная разбивка по участнику за месяц
+april_finale         итоги месяца с рейтингом и «интересными фактами»
+announce_gift        разовое объявление подарка сезона в чат
 ```
 
 ## Деплой

@@ -2,7 +2,7 @@
 and load it into the bot's SQLite database.
 
 Usage:
-    python backfill.py
+    python -m scripts.backfill
 
 Requires TG_API_ID / TG_API_HASH / TG_PHONE / CHAT_ID / BACKFILL_SINCE in .env.
 Get API credentials at https://my.telegram.org → API development tools.

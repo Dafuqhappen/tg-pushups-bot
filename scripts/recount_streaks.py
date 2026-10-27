@@ -5,7 +5,7 @@
 смена DAY_CUTOFF_HOUR) или просто чтобы убедиться, что состояние сходится.
 
 Usage:
-    python recount_streaks.py
+    python -m scripts.recount_streaks
 """
 
 from datetime import timedelta

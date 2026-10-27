@@ -1,10 +1,10 @@
 """April finale — end-of-month wrap-up post.
 
 Preview (default, does NOT send):
-    .venv/bin/python april_finale.py
+    .venv/bin/python -m scripts.april_finale
 
 Actually post to chat:
-    .venv/bin/python april_finale.py --send
+    .venv/bin/python -m scripts.april_finale --send
 """
 
 import argparse

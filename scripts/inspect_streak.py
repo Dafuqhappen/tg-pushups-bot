@@ -1,8 +1,8 @@
 """Quick read-only diagnostics for streak/cutoff debugging.
 
 Usage:
-    .venv/bin/python inspect_streak.py            # все юзеры
-    .venv/bin/python inspect_streak.py 12345678   # фокус на одном user_id
+    .venv/bin/python -m scripts.inspect_streak            # все юзеры
+    .venv/bin/python -m scripts.inspect_streak 12345678   # фокус на одном user_id
 """
 
 import sqlite3

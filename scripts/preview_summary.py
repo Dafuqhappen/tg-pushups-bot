@@ -1,8 +1,8 @@
 """Render what the daily summary would look like, without sending anything.
 
 Usage:
-    python preview_summary.py              # preview yesterday's summary (the one the 09:00 job would post today)
-    python preview_summary.py 2026-04-15   # preview a specific day
+    python -m scripts.preview_summary              # yesterday's summary, as the 09:00 job would post it
+    python -m scripts.preview_summary 2026-04-15   # preview a specific day
 """
 
 import random

@@ -4,8 +4,8 @@
 поэтому цифры в объявлении гарантированно совпадают с тем, что покажут
 /stats и /top.
 
-    python announce_gift.py           # только показать текст
-    python announce_gift.py --send    # отправить в чат
+    python -m scripts.announce_gift           # только показать текст
+    python -m scripts.announce_gift --send    # отправить в чат
 """
 
 import argparse
