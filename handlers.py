@@ -10,6 +10,8 @@ from config import (
     CHAT_ID,
     DAILY_GOAL,
     DAY_CUTOFF_HOUR,
+    PAUSE_BACKDATE_DAYS,
+    PAUSE_BUDGET_DAYS,
     TIMEZONE,
     EXCLUDED_USER_IDS,
     FREEZE_EVERY,
@@ -58,6 +60,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     medals = " · ".join(str(m) for m in st.medals) if st.medals else "пока нет"
     amnesty = "свободен ✅" if st.amnesty_free(today) else "использован ❌"
 
+    pause_row = _active_pause(user.id, today)
     lines = [
         f"{_display_name(user)}",
         f"сегодня: {today_count}/{DAILY_GOAL}",
@@ -78,6 +81,12 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"(+1 за каждые {FREEZE_EVERY} дней подряд)",
         f"• месячный пропуск: {amnesty}",
     ]
+    if pause_row:
+        until = date.fromisoformat(pause_row["until"])
+        lines += [
+            "",
+            f"🤕 на паузе до {until.strftime('%d.%m.%Y')} — серия заморожена",
+        ]
     await msg.reply_text("\n".join(lines))
 
 
@@ -152,12 +161,19 @@ def build_rules_text() -> str:
         "   кружком. Живёт своей жизнью и показывает, что ты продолжаешь",
         "   ходить, даже когда до нормы не добрал.",
         "",
+        f"🤕 пауза — на время болезни или травмы. Дни внутри неё не",
+        f"   считаются пропусками: серия не растёт и не рвётся. Бюджет —",
+        f"   {PAUSE_BUDGET_DAYS} дн. в год. Норму делать не запрещено: сделаешь —",
+        "   день засчитается обычным порядком.",
+        "   /pause 14 порваны связки — уйти, /pause stop — вернуться",
+        "",
         "🌍 сутки считаются в твоём часовом поясе. Если переехал —",
         "   скажи боту: /timezone Нячанг. Иначе ранняя тренировка может",
         "   уехать во вчерашний день.",
         "",
         "команды: /stats — статистика, /top — таблица,",
-        "/timezone — часовой пояс, /rules — это сообщение",
+        "/pause — пауза серии, /timezone — часовой пояс,",
+        "/rules — это сообщение",
     ]
     return "\n".join(lines)
 
@@ -259,4 +275,139 @@ async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         lines.append(f"пересчитано кружков: {moved}")
     if st is not None:
         lines.append(f"твой стрик: {st.current} 🔥")
+    await msg.reply_text("\n".join(lines))
+
+
+def _pause_days_used(user_id: int, year: int) -> int:
+    """Сколько дней пауз пришлось на указанный календарный год."""
+    used = 0
+    for r in db.pauses_for_user(user_id):
+        a = date.fromisoformat(r["start"])
+        b = date.fromisoformat(r["until"])
+        lo = max(a, date(year, 1, 1))
+        hi = min(b, date(year, 12, 31))
+        if lo <= hi:
+            used += (hi - lo).days + 1
+    return used
+
+
+def _active_pause(user_id: int, today: date):
+    for r in db.pauses_for_user(user_id):
+        if date.fromisoformat(r["start"]) <= today <= date.fromisoformat(r["until"]):
+            return r
+    return None
+
+
+async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.effective_message
+    if msg is None or msg.chat_id != CHAT_ID:
+        return
+
+    user = msg.from_user
+    today = current_local_day(timezones.timezone_for(user.id))
+    args = context.args or []
+    used = _pause_days_used(user.id, today.year)
+    left = PAUSE_BUDGET_DAYS - used
+    active = _active_pause(user.id, today)
+
+    # Без аргументов — показать состояние и остаток бюджета.
+    if not args:
+        lines = ["🤕 пауза серии", ""]
+        if active:
+            until = date.fromisoformat(active["until"])
+            lines.append(f"сейчас на паузе до {until.strftime('%d.%m.%Y')} "
+                         f"(осталось {(until - today).days + 1} дн.)")
+            if active["reason"]:
+                lines.append(f"причина: {active['reason']}")
+            lines.append("")
+        lines += [
+            f"бюджет на {today.year} год: {used} из {PAUSE_BUDGET_DAYS} дн. "
+            f"использовано, осталось {left}",
+            "",
+            "Дни на паузе не считаются пропусками: серия не растёт и не рвётся.",
+            "Норму делать не запрещено — сделаешь, день засчитается обычным порядком.",
+            "",
+            "уйти на паузу: /pause 14 порваны связки",
+            "выйти раньше: /pause stop",
+        ]
+        await msg.reply_text("\n".join(lines))
+        return
+
+    # Досрочный выход.
+    if args[0].lower() in ("stop", "стоп", "выход"):
+        if not active:
+            await msg.reply_text("ты сейчас не на паузе")
+            return
+        start = date.fromisoformat(active["start"])
+        db.shorten_pause(user.id, start, today)
+        streak_rules.recompute_all(current_local_day() - timedelta(days=1))
+        spent = (today - start).days + 1
+        await msg.reply_text(
+            f"🤕 пауза закрыта сегодня, потрачено {spent} дн.\n"
+            f"бюджет на {today.year}: осталось {PAUSE_BUDGET_DAYS - _pause_days_used(user.id, today.year)} дн.\n"
+            "с завтрашнего дня серия снова считается как обычно"
+        )
+        return
+
+    try:
+        days = int(args[0])
+    except ValueError:
+        await msg.reply_text("сколько дней? Пример: /pause 14 порваны связки")
+        return
+    if days < 1:
+        await msg.reply_text("дней должно быть хотя бы один")
+        return
+
+    rest = args[1:]
+    start = today
+    if rest:
+        try:
+            start = date.fromisoformat(rest[-1])
+            rest = rest[:-1]
+        except ValueError:
+            pass
+
+    # Задним числом — только на пару дней. Иначе пауза превращается в
+    # кнопку «отменить» уже потерянную серию.
+    if start < today - timedelta(days=PAUSE_BACKDATE_DAYS):
+        await msg.reply_text(
+            f"задним числом можно уйти максимум на {PAUSE_BACKDATE_DAYS} дн. назад — "
+            f"не раньше {(today - timedelta(days=PAUSE_BACKDATE_DAYS)).strftime('%d.%m.%Y')}"
+        )
+        return
+    if start > today:
+        await msg.reply_text("паузу можно начать сегодня или задним числом, но не в будущем")
+        return
+
+    st = streak_rules.state_for(user.id, today - timedelta(days=1))
+    if st.current == 0:
+        await msg.reply_text(
+            "серия сейчас 0 — паузу брать не от чего.\n"
+            "Она защищает живую серию, а не восстанавливает потерянную."
+        )
+        return
+
+    if days > left:
+        await msg.reply_text(
+            f"в бюджете на {today.year} осталось {left} дн., а запрошено {days}.\n"
+            f"всего на год даётся {PAUSE_BUDGET_DAYS} дн."
+        )
+        return
+
+    until = start + timedelta(days=days - 1)
+    reason = " ".join(rest).strip() or None
+    db.add_pause(user.id, start, until, reason)
+    streak_rules.recompute_all(current_local_day() - timedelta(days=1))
+
+    lines = [
+        f"🤕 пауза до {until.strftime('%d.%m.%Y')} включительно ({days} дн.)",
+        f"серия {st.current} 🔥 заморожена — не вырастет, но и не порвётся",
+    ]
+    if reason:
+        lines.append(f"причина: {reason}")
+    lines += [
+        f"бюджет на {today.year}: осталось {left - days} дн.",
+        "",
+        "выздоравливай. Вернёшься раньше — /pause stop",
+    ]
     await msg.reply_text("\n".join(lines))

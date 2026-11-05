@@ -101,6 +101,13 @@ _fgift = os.getenv("FREEZE_GIFT_DATE", "").strip()
 FREEZE_GIFT_DATE: date | None = date.fromisoformat(_fgift) if _fgift else None
 FREEZE_GIFT_AMOUNT = int(os.getenv("FREEZE_GIFT_AMOUNT", "0"))
 
+# Пауза серии на время болезни или травмы. Дни внутри паузы не оцениваются,
+# поэтому серия не растёт и не рвётся. Ограничителей два: годовой бюджет и
+# запрет уходить в паузу глубоко задним числом — иначе это превращается в
+# кнопку «отменить» уже потерянную серию.
+PAUSE_BUDGET_DAYS = int(os.getenv("PAUSE_BUDGET_DAYS", "30"))
+PAUSE_BACKDATE_DAYS = int(os.getenv("PAUSE_BACKDATE_DAYS", "3"))
+
 
 def to_local_day(dt: datetime, tz: ZoneInfo | None = None) -> date:
     """Сопоставить момент времени логическому дню по правилу cutoff.

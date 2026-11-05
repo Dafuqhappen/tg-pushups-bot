@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS user_timezones (
     PRIMARY KEY (user_id, since)
 );
 
+-- Паузы серии: болезнь, травма. Дни внутри паузы не оцениваются вовсе —
+-- ни зачёт, ни пропуск, — поэтому серия не растёт и не рвётся. Границы
+-- включительные. Отдельно от заморозок: те расходуются по штуке за день и
+-- зарабатываются, а пауза — заявленное исключение с бюджетом.
+CREATE TABLE IF NOT EXISTS streak_pauses (
+    user_id INTEGER NOT NULL,
+    start   TEXT    NOT NULL,
+    until   TEXT    NOT NULL,
+    reason  TEXT,
+    created TEXT    NOT NULL,
+    PRIMARY KEY (user_id, start)
+);
+
 CREATE TABLE IF NOT EXISTS used_quotes (
     bucket TEXT NOT NULL,
     quote  TEXT NOT NULL,
@@ -276,6 +289,49 @@ def set_note_local_date(message_id: int, user_id: int, local_date: date) -> None
         conn.execute(
             "UPDATE video_notes SET local_date = ? WHERE message_id = ? AND user_id = ?",
             (local_date.isoformat(), message_id, user_id),
+        )
+
+
+def add_pause(user_id: int, start: date, until: date, reason: str | None) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO streak_pauses (user_id, start, until, reason, created)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, start) DO UPDATE SET
+                until = excluded.until,
+                reason = excluded.reason
+            """,
+            (user_id, start.isoformat(), until.isoformat(), reason,
+             datetime.utcnow().isoformat()),
+        )
+
+
+def pauses_for_user(user_id: int) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute(
+            "SELECT start, until, reason FROM streak_pauses"
+            " WHERE user_id = ? ORDER BY start",
+            (user_id,),
+        ).fetchall()
+
+
+def pauses_all() -> dict[int, list[tuple[date, date]]]:
+    """Границы пауз по участникам — для реплея, без причин."""
+    out: dict[int, list[tuple[date, date]]] = {}
+    with connect() as conn:
+        for r in conn.execute("SELECT user_id, start, until FROM streak_pauses"):
+            out.setdefault(r["user_id"], []).append(
+                (date.fromisoformat(r["start"]), date.fromisoformat(r["until"]))
+            )
+    return out
+
+
+def shorten_pause(user_id: int, start: date, until: date) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE streak_pauses SET until = ? WHERE user_id = ? AND start = ?",
+            (until.isoformat(), user_id, start.isoformat()),
         )
 
 

@@ -14,7 +14,15 @@ from datetime import timedelta
 
 import db
 import streak_rules
-from config import BOT_TOKEN, CHAT_ID, EXCLUDED_USER_IDS, FREEZE_GIFT_AMOUNT, FREEZE_GIFT_DATE, current_local_day
+from config import (
+    BOT_TOKEN,
+    CHAT_ID,
+    DAILY_GOAL,
+    EXCLUDED_USER_IDS,
+    FREEZE_GIFT_AMOUNT,
+    FREEZE_GIFT_DATE,
+    current_local_day,
+)
 from scheduler import _send_with_retry
 from telegram import Bot
 from telegram.request import HTTPXRequest
@@ -35,6 +43,29 @@ GREETING = """🎂 Поздравляю всех участников чата �
 мышцы кора +6
 мышцы рук и спины +7
 самоуважение +10"""
+
+
+def stats_block() -> str:
+    """Цифры за год. Берутся из базы, а не пишутся руками."""
+    with db.connect() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM video_notes").fetchone()[0]
+        people = conn.execute("SELECT COUNT(DISTINCT user_id) FROM video_notes").fetchone()[0]
+        days = conn.execute("SELECT COUNT(DISTINCT local_date) FROM video_notes").fetchone()[0]
+        norms = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT local_date, user_id, COUNT(*) n"
+            " FROM video_notes GROUP BY local_date, user_id HAVING n >= ?)",
+            (DAILY_GOAL,),
+        ).fetchone()[0]
+
+    # Кружок идёт примерно минуту — удобная единица, чтобы объём стал осязаемым.
+    hours = total // 60
+    return "\n".join([
+        "за год вместе:",
+        f"🎥 {total} кружков — это около {hours} часов непрерывного видео",
+        f"✅ {norms} закрытых норм",
+        f"📆 {days} дней, когда в чате кто-то занимался",
+        f"👥 {people} человек прошло через челлендж",
+    ])
 
 
 def build_text() -> str:
@@ -58,6 +89,8 @@ def build_text() -> str:
 
     lines = [
         GREETING,
+        "",
+        stats_block(),
         "",
         f"🎁 В честь дня рождения чата всем начислено {FREEZE_GIFT_AMOUNT} несгораемых дней "
         f"(с {FREEZE_GIFT_DATE.strftime('%d.%m')}). Пропустил день — списывается "

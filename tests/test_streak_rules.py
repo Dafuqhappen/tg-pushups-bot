@@ -213,6 +213,45 @@ check("выдача заморозок идемпотентна: запас", s2
 _sr.FREEZE_GIFT_DATE = None
 _sr.FREEZE_GIFT_AMOUNT = 0
 
+# 16. Пауза серии (болезнь, травма)
+PAUSE = ((START + timedelta(days=3), START + timedelta(days=6)),)  # 4-7 июня
+
+# Четыре пропуска подряд внутри паузы серию не трогают
+st = run([4, 4, 4, 0, 0, 0, 0, 4], pauses=PAUSE)
+check("пауза не даёт серии порваться", st.current, 4)
+check("месячная амнистия не тронута", st.amnesty_month, None)
+check("заморозки не тронуты", st.freeze_banked, 0)
+
+# Без паузы та же история рвётся: амнистия закрывает только один день
+st = run([4, 4, 4, 0, 0, 0, 0, 4])
+check("без паузы серия рвётся", st.current, 1)
+
+# Норму внутри паузы делать не запрещено — день засчитывается обычным
+# порядком, серия растёт. Пауза защищает только от пропусков.
+st = run([4, 4, 4, 4, 0, 0, 0], pauses=PAUSE)
+check("зачёт внутри паузы наращивает серию", st.current, 4)
+
+# Стрик активности тоже переживает паузу
+st = run([1, 1, 1, 0, 0, 0, 0, 1], pauses=PAUSE)
+check("активность переживает паузу", st.activity_current, 4)
+st = run([1, 1, 1, 0, 0, 0, 0, 1])
+check("без паузы активность рвётся", st.activity_current, 1)
+
+# После окончания паузы правила возвращаются обычные
+st = run([4, 4, 4, 0, 0, 0, 0, 4, 0, 0], pauses=PAUSE)
+check("после паузы первый пропуск гасит амнистия", st.amnesty_month, "2026-06")
+check("после паузы второй пропуск рвёт серию", st.current, 0)
+
+# Повторный прогон ничего не меняет
+seq = [4, 4, 4, 0, 0, 0, 0, 4]
+c = counts(seq)
+upto = START + timedelta(days=len(seq) - 1)
+s1 = replay(c, upto, start=START, best_floor=0, pauses=PAUSE)
+s2 = replay(c, upto, start=START, best_floor=s1.best,
+            activity_best_floor=s1.activity_best, pauses=PAUSE)
+check("пауза идемпотентна: серия", s2.current, s1.current)
+check("пауза идемпотентна: рекорд", s2.best, s1.best)
+
 if failures:
     print("ПРОВАЛЕНО:")
     for f in failures:

@@ -154,6 +154,27 @@ def build_summary_text(day: date, states: dict[int, "streak_rules.StreakState"])
             "их можно потратить на пропуск, не теряя серию."
         )
 
+    # Паузы объявляются открыто: публичность и есть защита от
+    # злоупотребления — проверок нет, но видно всем.
+    paused = []
+    for r in counts:
+        st = states.get(r["user_id"])
+        if st is None or not st.paused_today:
+            continue
+        row = next(
+            (q for q in db.pauses_for_user(r["user_id"])
+             if date.fromisoformat(q["start"]) <= day <= date.fromisoformat(q["until"])),
+            None,
+        )
+        if row is None:
+            continue
+        until = date.fromisoformat(row["until"])
+        tail = f" ({row['reason']})" if row["reason"] else ""
+        paused.append(f"• {_display_name(r)} — до {until.strftime('%d.%m')}{tail}")
+    if paused:
+        lines.append("\n🤕 на паузе, серия заморожена:")
+        lines.extend(paused)
+
     rescued = [
         (r, states[r["user_id"]])
         for r in counts

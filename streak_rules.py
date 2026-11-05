@@ -47,6 +47,7 @@ class StreakState:
     milestone_today: int | None = None
     freeze_gift_today: int = 0
     freeze_spent_today: bool = False
+    paused_today: bool = False
     amnesty_spent_today: bool = False
     streak_broken_today: bool = False
     gift_today: int | None = None
@@ -71,6 +72,7 @@ def replay(
     start: date = SEASON_START,
     best_floor: int = 0,
     activity_best_floor: int = 0,
+    pauses: tuple[tuple[date, date], ...] = (),
 ) -> StreakState:
     """Проиграть сезон с `start` по `upto` включительно.
 
@@ -102,9 +104,16 @@ def replay(
         st.milestone_today = None
         st.freeze_gift_today = 0
         st.freeze_spent_today = False
+        st.paused_today = False
         st.amnesty_spent_today = False
         st.streak_broken_today = False
         st.gift_today = None
+
+        # Пауза серии: день внутри неё вообще не оценивается. Норму при
+        # этом делать не запрещено — если сделал, день засчитается обычным
+        # порядком и серия вырастет. Пауза защищает только от пропусков.
+        in_pause = any(a <= day <= b for a, b in pauses)
+        st.paused_today = in_pause and not passed
 
         # --- разовая выдача заморозок ---
         # Строго ДО обработки дня: иначе пропуск, случившийся в саму дату
@@ -127,6 +136,9 @@ def replay(
             st.best = max(st.best, st.current)
             season_best = max(season_best, st.current)
             st.last_passed = day
+        elif in_pause:
+            # Пропуск внутри паузы не трогает ни серию, ни ресурсы отдыха.
+            pass
         elif is_gift:
             # День подарка бесплатный: пропуск в этот день не списывает
             # ни месячную амнистию, ни накопленную заморозку.
@@ -165,7 +177,7 @@ def replay(
             st.activity_current += 1
             st.activity_best = max(st.activity_best, st.activity_current)
             st.last_active = day
-        else:
+        elif not in_pause:
             st.activity_current = 0
 
         day += timedelta(days=1)
@@ -177,17 +189,23 @@ def state_for(user_id: int, upto: date) -> StreakState:
     """Состояние одного участника. Считается на лету, не зависит от того,
     успела ли отработать ежедневная джоба."""
     prev = db.get_streak(user_id)
+    pauses = tuple(
+        (date.fromisoformat(r["start"]), date.fromisoformat(r["until"]))
+        for r in db.pauses_for_user(user_id)
+    )
     return replay(
         db.counts_by_day(user_id),
         upto,
         best_floor=(prev["best_streak"] if prev else 0) or 0,
         activity_best_floor=(prev["best_activity_streak"] if prev else 0) or 0,
+        pauses=pauses,
     )
 
 
 def recompute_all(upto: date, *, persist: bool = True) -> dict[int, StreakState]:
     """Пересчитать всех. Один запрос за счётчиками, дальше — в памяти."""
     counts = db.counts_by_day_all()
+    all_pauses = db.pauses_all()
     states: dict[int, StreakState] = {}
 
     for u in db.all_users():
@@ -198,6 +216,7 @@ def recompute_all(upto: date, *, persist: bool = True) -> dict[int, StreakState]
             upto,
             best_floor=(prev["best_streak"] if prev else 0) or 0,
             activity_best_floor=(prev["best_activity_streak"] if prev else 0) or 0,
+            pauses=tuple(all_pauses.get(uid, ())),
         )
         if persist:
             db.save_state(uid, st)
