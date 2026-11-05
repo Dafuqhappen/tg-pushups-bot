@@ -142,6 +142,18 @@ def build_summary_text(day: date, states: dict[int, "streak_rules.StreakState"])
         for r, st in walkers:
             lines.append(f"• {_display_name(r)} — {st.activity_current} дней подряд")
 
+    # Выдача заморозок — одна на всех, поэтому без списка имён.
+    granted = next(
+        (states[r["user_id"]].freeze_gift_today for r in counts
+         if r["user_id"] in states and states[r["user_id"]].freeze_gift_today),
+        0,
+    )
+    if granted:
+        lines.append(
+            f"\n🎁 всем участникам начислено {granted} несгораемых дней — "
+            "их можно потратить на пропуск, не теряя серию."
+        )
+
     rescued = [
         (r, states[r["user_id"]])
         for r in counts

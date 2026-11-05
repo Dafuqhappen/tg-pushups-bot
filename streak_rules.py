@@ -16,6 +16,8 @@ import db
 from config import (
     DAILY_GOAL,
     FREEZE_EVERY,
+    FREEZE_GIFT_AMOUNT,
+    FREEZE_GIFT_DATE,
     MILESTONES,
     SEASON_START,
     STREAK_GIFT_DATE,
@@ -43,6 +45,7 @@ class StreakState:
 
     # Что случилось именно в последний проигранный день — нужно сводке.
     milestone_today: int | None = None
+    freeze_gift_today: int = 0
     freeze_spent_today: bool = False
     amnesty_spent_today: bool = False
     streak_broken_today: bool = False
@@ -97,10 +100,19 @@ def replay(
             st.passed_days += 1
 
         st.milestone_today = None
+        st.freeze_gift_today = 0
         st.freeze_spent_today = False
         st.amnesty_spent_today = False
         st.streak_broken_today = False
         st.gift_today = None
+
+        # --- разовая выдача заморозок ---
+        # Строго ДО обработки дня: иначе пропуск, случившийся в саму дату
+        # подарка, успел бы порвать серию раньше, чем приедет спасение.
+        if (FREEZE_GIFT_DATE is not None and day == FREEZE_GIFT_DATE
+                and FREEZE_GIFT_AMOUNT > 0):
+            st.freeze_banked += FREEZE_GIFT_AMOUNT
+            st.freeze_gift_today = FREEZE_GIFT_AMOUNT
 
         # --- основной стрик (норма выполнена) ---
         is_gift = STREAK_GIFT_DATE is not None and day == STREAK_GIFT_DATE

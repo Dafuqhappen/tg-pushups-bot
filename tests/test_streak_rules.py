@@ -172,6 +172,47 @@ check("пересчёт идемпотентен: рекорд 2→3", s3.best, 
 _sr.STREAK_GIFT_DATE = None
 config.STREAK_GIFT_DATE = None
 
+# 15. Разовая выдача заморозок (день рождения чата)
+_sr.FREEZE_GIFT_DATE = START + timedelta(days=4)
+_sr.FREEZE_GIFT_AMOUNT = 5
+
+# Выдача происходит ДО обработки дня, поэтому спасает серию прямо в свою
+# дату. Это ровно тот случай, ради которого подарок и задумывался:
+# у человека 1-го сгорела месячная амнистия, и 5-го серия рвалась.
+st = run([4, 4, 4, 0, 0])
+check("подарок спасает серию в свой же день", st.current, 3)
+check("одна заморозка ушла на спасение", st.freeze_banked, 4)
+check("выдача отмечена в состоянии", st.freeze_gift_today, 5)
+
+# Без подарка та же история рвётся
+_sr.FREEZE_GIFT_DATE = None
+st = run([4, 4, 4, 0, 0])
+check("без подарка серия рвётся", st.current, 0)
+_sr.FREEZE_GIFT_DATE = START + timedelta(days=4)
+
+# Запас расходуется день за днём. Ресурсов ровно шесть: месячная амнистия
+# плюс пять подаренных заморозок, — значит шесть пропусков переживаются,
+# а седьмой рвёт серию.
+st = run([4, 4, 4] + [0] * 6)
+check("шесть пропусков переживаются", st.current, 3)
+check("запас исчерпан ровно", st.freeze_banked, 0)
+st = run([4, 4, 4] + [0] * 7)
+check("седьмой пропуск рвёт серию", st.current, 0)
+
+# Прибавка фиксированная и от состояния не зависит, поэтому повторный
+# прогон ничего не накручивает — в отличие от подарка стрика, который
+# когда-то читал best и сам же его растил.
+seq = [4, 4, 4, 0, 0, 4, 4]
+c = counts(seq)
+upto = START + timedelta(days=len(seq) - 1)
+s1 = replay(c, upto, start=START, best_floor=0)
+s2 = replay(c, upto, start=START, best_floor=s1.best, activity_best_floor=s1.activity_best)
+check("выдача заморозок идемпотентна: стрик", s2.current, s1.current)
+check("выдача заморозок идемпотентна: запас", s2.freeze_banked, s1.freeze_banked)
+
+_sr.FREEZE_GIFT_DATE = None
+_sr.FREEZE_GIFT_AMOUNT = 0
+
 if failures:
     print("ПРОВАЛЕНО:")
     for f in failures:

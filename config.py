@@ -92,6 +92,15 @@ MILESTONES: tuple[int, ...] = tuple(
 _gift = os.getenv("STREAK_GIFT_DATE", "").strip()
 STREAK_GIFT_DATE: date | None = date.fromisoformat(_gift) if _gift else None
 
+# Разовая выдача заморозок всем участникам (день рождения чата и т.п.).
+# Начисляются в указанный день ДО обработки пропуска этого дня, поэтому
+# могут спасти серию прямо в дату подарка. В отличие от STREAK_GIFT_DATE
+# прибавляют фиксированную величину и не читают накопленное состояние,
+# так что обратной связи и самораздувания здесь быть не может.
+_fgift = os.getenv("FREEZE_GIFT_DATE", "").strip()
+FREEZE_GIFT_DATE: date | None = date.fromisoformat(_fgift) if _fgift else None
+FREEZE_GIFT_AMOUNT = int(os.getenv("FREEZE_GIFT_AMOUNT", "0"))
+
 
 def to_local_day(dt: datetime, tz: ZoneInfo | None = None) -> date:
     """Сопоставить момент времени логическому дню по правилу cutoff.
