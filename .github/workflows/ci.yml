@@ -22,3 +22,4 @@ jobs:
       - run: ruff check .
       - run: python -m tests.test_streak_rules
       - run: python -m tests.test_timezones
+      - run: python -m tests.test_pause_args

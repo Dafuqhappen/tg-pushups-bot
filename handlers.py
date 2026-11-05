@@ -165,7 +165,9 @@ def build_rules_text() -> str:
         f"   считаются пропусками: серия не растёт и не рвётся. Бюджет —",
         f"   {PAUSE_BUDGET_DAYS} дн. в год. Норму делать не запрещено: сделаешь —",
         "   день засчитается обычным порядком.",
-        "   /pause 14 порваны связки — уйти, /pause stop — вернуться",
+        "   /pause 14 порваны связки — уйти, /pause stop — вернуться.",
+        f"   Начать задним числом (до {PAUSE_BACKDATE_DAYS} дн.) — добавить дату:",
+        "   /pause 14 2026-11-04 порваны связки",
         "",
         "🌍 сутки считаются в твоём часовом поясе. Если переехал —",
         "   скажи боту: /timezone Нячанг. Иначе ранняя тренировка может",
@@ -291,6 +293,29 @@ def _pause_days_used(user_id: int, year: int) -> int:
     return used
 
 
+def split_pause_args(rest: list[str], default_start: date) -> tuple[date, str | None]:
+    """Выделить дату начала и причину из хвоста аргументов /pause.
+
+    Дату принимаем в любой позиции: и сразу после числа дней
+    (`14 2026-11-04 связки`), и последним словом (`14 связки 2026-11-04`).
+    Позиционный разбор заставлял бы помнить порядок, а это команда, которой
+    пользуются раз в полгода и в неподходящий момент.
+    """
+    start = default_start
+    found = False
+    words: list[str] = []
+    for word in rest:
+        if not found:
+            try:
+                start = date.fromisoformat(word)
+                found = True
+                continue
+            except ValueError:
+                pass
+        words.append(word)
+    return start, " ".join(words).strip() or None
+
+
 def _active_pause(user_id: int, today: date):
     for r in db.pauses_for_user(user_id):
         if date.fromisoformat(r["start"]) <= today <= date.fromisoformat(r["until"]):
@@ -328,6 +353,8 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Норму делать не запрещено — сделаешь, день засчитается обычным порядком.",
             "",
             "уйти на паузу: /pause 14 порваны связки",
+            f"задним числом (до {PAUSE_BACKDATE_DAYS} дн.): "
+            "/pause 14 2026-11-04 порваны связки",
             "выйти раньше: /pause stop",
         ]
         await msg.reply_text("\n".join(lines))
@@ -358,14 +385,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.reply_text("дней должно быть хотя бы один")
         return
 
-    rest = args[1:]
-    start = today
-    if rest:
-        try:
-            start = date.fromisoformat(rest[-1])
-            rest = rest[:-1]
-        except ValueError:
-            pass
+    start, reason = split_pause_args(args[1:], today)
 
     # Задним числом — только на пару дней. Иначе пауза превращается в
     # кнопку «отменить» уже потерянную серию.
@@ -395,7 +415,6 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     until = start + timedelta(days=days - 1)
-    reason = " ".join(rest).strip() or None
     db.add_pause(user.id, start, until, reason)
     streak_rules.recompute_all(current_local_day() - timedelta(days=1))
 
