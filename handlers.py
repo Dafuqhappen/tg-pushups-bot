@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 
 from telegram import Update
@@ -167,7 +168,7 @@ def build_rules_text() -> str:
         "   день засчитается обычным порядком.",
         "   /pause 14 порваны связки — уйти, /pause stop — вернуться.",
         f"   Начать задним числом (до {PAUSE_BACKDATE_DAYS} дн.) — добавить дату:",
-        "   /pause 14 2026-11-04 порваны связки",
+        "   /pause 14 04.11.2026 порваны связки",
         "",
         "🌍 сутки считаются в твоём часовом поясе. Если переехал —",
         "   скажи боту: /timezone Нячанг. Иначе ранняя тренировка может",
@@ -221,7 +222,7 @@ async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         lines += [
             "",
             "сменить: /timezone Нячанг",
-            "задним числом: /timezone Нячанг 2026-10-12",
+            "задним числом: /timezone Нячанг 12.10.2026",
             "можно и IANA-именем: /timezone Asia/Ho_Chi_Minh",
         ]
         await msg.reply_text("\n".join(lines))
@@ -230,11 +231,10 @@ async def cmd_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Последний аргумент может быть датой начала действия.
     since = current_local_day(timezones.timezone_for(user.id))
     place_parts = list(args)
-    try:
-        since = date.fromisoformat(place_parts[-1])
+    parsed = parse_user_date(place_parts[-1]) if place_parts else None
+    if parsed is not None:
+        since = parsed
         place_parts = place_parts[:-1]
-    except ValueError:
-        pass
 
     if not place_parts:
         await msg.reply_text("не понял, какой пояс. Пример: /timezone Нячанг")
@@ -293,27 +293,50 @@ def _pause_days_used(user_id: int, year: int) -> int:
     return used
 
 
-def split_pause_args(rest: list[str], default_start: date) -> tuple[date, str | None]:
+# Токен, похожий на дату: цифры с точками или дефисами. Нужен, чтобы
+# отличить опечатку в дате от обычного слова причины и не проглотить её молча.
+_DATEISH = re.compile(r"^\d[\d.\-]*\d$")
+
+
+def parse_user_date(text: str) -> date | None:
+    """Разобрать дату в привычном формате 04.11.2026 либо в ISO."""
+    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def split_pause_args(
+    rest: list[str], default_start: date
+) -> tuple[date, str | None, str | None]:
     """Выделить дату начала и причину из хвоста аргументов /pause.
 
-    Дату принимаем в любой позиции: и сразу после числа дней
-    (`14 2026-11-04 связки`), и последним словом (`14 связки 2026-11-04`).
-    Позиционный разбор заставлял бы помнить порядок, а это команда, которой
-    пользуются раз в полгода и в неподходящий момент.
+    Дата принимается в любой позиции — и сразу после числа дней, и внутри
+    причины. Позиционный разбор заставлял бы помнить порядок, а команду
+    вызывают раз в полгода и в неподходящий момент.
+
+    Третьим значением возвращается токен, который выглядел датой, но не
+    разобрался. Без этого опечатка вроде `04.11` молча утекала бы в текст
+    причины, и пауза начиналась бы не с того дня.
     """
     start = default_start
     found = False
     words: list[str] = []
     for word in rest:
         if not found:
-            try:
-                start = date.fromisoformat(word)
-                found = True
+            parsed = parse_user_date(word)
+            if parsed is not None:
+                start, found = parsed, True
                 continue
-            except ValueError:
-                pass
+            if _DATEISH.match(word):
+                return default_start, None, word
         words.append(word)
-    return start, " ".join(words).strip() or None
+    return start, " ".join(words).strip() or None, None
 
 
 def _active_pause(user_id: int, today: date):
@@ -354,7 +377,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "",
             "уйти на паузу: /pause 14 порваны связки",
             f"задним числом (до {PAUSE_BACKDATE_DAYS} дн.): "
-            "/pause 14 2026-11-04 порваны связки",
+            "/pause 14 04.11.2026 порваны связки",
             "выйти раньше: /pause stop",
         ]
         await msg.reply_text("\n".join(lines))
@@ -385,7 +408,13 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.reply_text("дней должно быть хотя бы один")
         return
 
-    start, reason = split_pause_args(args[1:], today)
+    start, reason, bad_date = split_pause_args(args[1:], today)
+    if bad_date:
+        await msg.reply_text(
+            f"не понял дату {bad_date!r}. Формат — 04.11.2026\n"
+            "пример: /pause 14 04.11.2026 порваны связки"
+        )
+        return
 
     # Задним числом — только на пару дней. Иначе пауза превращается в
     # кнопку «отменить» уже потерянную серию.

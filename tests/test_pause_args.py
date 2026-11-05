@@ -11,7 +11,7 @@ os.environ.setdefault("BOT_TOKEN", "test:token")
 os.environ.setdefault("CHAT_ID", "-100")
 os.environ.setdefault("DB_PATH", "/tmp/test-pause-never-written.db")
 
-from handlers import split_pause_args  # noqa: E402
+from handlers import parse_user_date, split_pause_args  # noqa: E402
 
 TODAY = date(2026, 11, 5)
 failures = []
@@ -22,24 +22,36 @@ def check(name, got, want):
         failures.append(f"{name}: получили {got!r}, ожидали {want!r}")
 
 
+check("формат с точками", parse_user_date("04.11.2026"), date(2026, 11, 4))
+check("без ведущего нуля", parse_user_date("4.11.2026"), date(2026, 11, 4))
+check("короткий год", parse_user_date("04.11.26"), date(2026, 11, 4))
+check("ISO тоже принимается", parse_user_date("2026-11-04"), date(2026, 11, 4))
+check("не дата", parse_user_date("связки"), None)
+
 check("пусто — сегодня, без причины",
-      split_pause_args([], TODAY), (TODAY, None))
+      split_pause_args([], TODAY), (TODAY, None, None))
 check("только причина",
-      split_pause_args(["порваны", "связки"], TODAY), (TODAY, "порваны связки"))
+      split_pause_args(["порваны", "связки"], TODAY), (TODAY, "порваны связки", None))
 check("дата сразу после числа дней",
-      split_pause_args(["2026-11-04", "связки"], TODAY), (date(2026, 11, 4), "связки"))
+      split_pause_args(["04.11.2026", "связки"], TODAY), (date(2026, 11, 4), "связки", None))
 check("дата последним словом",
-      split_pause_args(["связки", "2026-11-04"], TODAY), (date(2026, 11, 4), "связки"))
+      split_pause_args(["связки", "04.11.2026"], TODAY), (date(2026, 11, 4), "связки", None))
 check("дата в середине",
-      split_pause_args(["порваны", "2026-11-04", "связки"], TODAY),
-      (date(2026, 11, 4), "порваны связки"))
+      split_pause_args(["порваны", "04.11.2026", "связки"], TODAY),
+      (date(2026, 11, 4), "порваны связки", None))
 check("только дата, без причины",
-      split_pause_args(["2026-11-04"], TODAY), (date(2026, 11, 4), None))
+      split_pause_args(["04.11.2026"], TODAY), (date(2026, 11, 4), None, None))
 check("вторая дата остаётся текстом",
-      split_pause_args(["2026-11-04", "до", "2026-11-18"], TODAY),
-      (date(2026, 11, 4), "до 2026-11-18"))
-check("не-дата не съедается",
-      split_pause_args(["04.11.2026", "связки"], TODAY), (TODAY, "04.11.2026 связки"))
+      split_pause_args(["04.11.2026", "до", "18.11.2026"], TODAY),
+      (date(2026, 11, 4), "до 18.11.2026", None))
+
+# Главное: огрызок даты не утекает в причину, а возвращается как ошибка.
+check("неполная дата — ошибка, а не причина",
+      split_pause_args(["04.11", "связки"], TODAY), (TODAY, None, "04.11"))
+check("несуществующая дата — ошибка",
+      split_pause_args(["32.11.2026"], TODAY), (TODAY, None, "32.11.2026"))
+check("слово с цифрами не считается датой",
+      split_pause_args(["ковид19"], TODAY), (TODAY, "ковид19", None))
 
 if failures:
     print("ПРОВАЛЕНО:")
