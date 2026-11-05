@@ -79,7 +79,7 @@ FREEZE_EVERY = int(os.getenv("FREEZE_EVERY", "30"))
 # Вехи, за которые выдаются постоянные медали. Считаются от best_streak,
 # поэтому остаются с человеком навсегда — отдых их не отнимает.
 MILESTONES: tuple[int, ...] = tuple(
-    int(x) for x in os.getenv("MILESTONES", "30,50,100,200,365").split(",") if x.strip()
+    int(x) for x in os.getenv("MILESTONES", "30,50,100,150,200,365").split(",") if x.strip()
 )
 
 # Разовый подарок сезона. В указанный день стрик каждого участника
